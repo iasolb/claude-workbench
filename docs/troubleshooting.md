@@ -19,7 +19,14 @@ how to fix it.
 Creating symlinks on Windows requires either Developer Mode (Settings >
 Privacy & Security > For Developers) or an elevated (Run as Administrator)
 PowerShell. The installer tests this up front and touches nothing if the
-test fails, so just enable one of the two and re-run.
+test fails, so enable one of the two and re-run.
+
+Note the installer deliberately creates links with cmd's `mklink` rather
+than PowerShell's `New-Item`: Windows PowerShell 5.1's `New-Item` never
+passes the flag that makes Developer Mode count for unprivileged symlink
+creation, so it demands elevation even when Developer Mode is on. If you
+are creating links by hand and hitting "Administrator privilege required"
+despite Developer Mode, that is why; use `mklink` from cmd.
 
 ## Windows: memory link points at the "wrong" project
 

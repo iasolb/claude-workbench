@@ -15,14 +15,43 @@ param(
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $claudeDir = Join-Path $env:USERPROFILE ".claude"
 
-# Preflight: creating symlinks needs admin rights or Developer Mode on
-# Windows. Test in a throwaway location BEFORE touching any real target, so
-# a run with insufficient privilege fails loudly up front instead of
-# removing existing config and then failing to replace it.
+# Links are created with cmd's mklink, not New-Item: mklink passes the flag
+# that lets Developer Mode create symlinks unelevated, while Windows
+# PowerShell 5.1's New-Item never does and demands elevation even with
+# Developer Mode on.
+function New-Symlink($target, $source) {
+    if (Test-Path $source -PathType Container) {
+        cmd /c mklink /D $target $source | Out-Null
+    } else {
+        cmd /c mklink $target $source | Out-Null
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "mklink exited with code $LASTEXITCODE"
+    }
+}
+
+# Removing a directory link with Remove-Item triggers a confirmation prompt
+# in PowerShell 5.1; rmdir removes the link itself without prompting and can
+# never recurse into the link's target.
+function Remove-Link($path) {
+    if ((Get-Item $path -Force).PSIsContainer) {
+        cmd /c rmdir $path | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "rmdir exited with code $LASTEXITCODE"
+        }
+    } else {
+        Remove-Item $path -Force -ErrorAction Stop
+    }
+}
+
+# Preflight: symlink creation needs Developer Mode or admin rights. Test in
+# a throwaway location BEFORE touching any real target, so a run with
+# insufficient privilege fails loudly up front instead of removing existing
+# config and then failing to replace it.
 $preflightTarget = Join-Path $env:TEMP "claude-workbench-symlink-test-$(Get-Random)"
 try {
-    New-Item -ItemType SymbolicLink -Path $preflightTarget -Target $repoRoot -ErrorAction Stop | Out-Null
-    Remove-Item $preflightTarget -Force
+    New-Symlink $preflightTarget $repoRoot
+    Remove-Link $preflightTarget
 } catch {
     Write-Host "Cannot create symlinks: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "Nothing has been touched. Either:" -ForegroundColor Red
@@ -35,12 +64,12 @@ $items = @("CLAUDE.md", "settings.json", "commands", "agents", "rules", "hooks")
 
 function Replace-WithSymlink($target, $source, $label) {
     if (Test-Path $target) {
-        $isSymlink = (Get-Item $target -Force).LinkType -eq "SymbolicLink"
-        if ($isSymlink) {
+        $isLink = [bool](Get-Item $target -Force).LinkType
+        if ($isLink) {
             try {
-                Remove-Item $target -Force -ErrorAction Stop
+                Remove-Link $target
             } catch {
-                Write-Host "FAILED to remove existing symlink at $label : $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "FAILED to remove existing link at $label : $($_.Exception.Message)" -ForegroundColor Red
                 return
             }
         } else {
@@ -50,7 +79,7 @@ function Replace-WithSymlink($target, $source, $label) {
     }
 
     try {
-        New-Item -ItemType SymbolicLink -Path $target -Target $source -ErrorAction Stop | Out-Null
+        New-Symlink $target $source
         Write-Host "Linked $label"
     } catch {
         Write-Host "FAILED to link $label : $($_.Exception.Message)" -ForegroundColor Red
