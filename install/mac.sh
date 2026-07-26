@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Symlinks this repo's tracked config into ~/.claude and writes
 # ~/.claude/workbench.conf so the hooks know where the repo lives.
-# Run from anywhere; resolves paths relative to this script's location.
+# Repo paths resolve relative to this script's location, but run it FROM
+# the directory you launch `claude` from: the memory symlink is keyed to
+# the invocation directory (see the project-key note below).
 # Existing targets are backed up with a .bak suffix before being replaced,
 # never silently overwritten.
 #
@@ -63,12 +65,15 @@ for item in "${items[@]}"; do
     replace_with_symlink "$claude_dir/$item" "$repo_root/$item" "$item"
 done
 
-# Cross-machine session memory: link the home-dir project's memory dir to the
+# Cross-machine session memory: link this project's memory dir to the
 # repo's memory/ so memories written on any machine sync through git.
-# Claude Code derives the project key from $HOME by swapping path separators
-# for dashes (/Users/you -> -Users-you).
+# Claude Code derives the project key from the session's working directory,
+# NOT the home dir: a session launched from /Users/you/claude gets key
+# "-Users-you-claude". So run this script from whatever directory you
+# actually launch `claude` from on this machine, and re-run it if that
+# changes. (Same fix windows.ps1 got after the bare-C:\ gotcha.)
 memory_source="$repo_root/memory"
-project_key="$(echo "$HOME" | tr '/' '-')"
+project_key="$(pwd | tr '/' '-')"
 memory_target="$claude_dir/projects/$project_key/memory"
 
 mkdir -p "$(dirname "$memory_target")"
