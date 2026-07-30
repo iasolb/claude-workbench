@@ -68,10 +68,22 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # 3. Leftovers from a previous session (the SessionEnd hook stages, never
-# commits).
+# commits). timelog/sessions.csv alone is machine-generated churn (the
+# time-log hook appends rows every session), so it gets auto-committed and
+# pushed instead of nagging; anything else is a real leftover to report.
 $dirty = git -C $repo status --porcelain
+$dirtyReal = @($dirty | Where-Object { $_ -notmatch 'timelog/sessions\.csv' })
+if ($dirty -and -not $dirtyReal) {
+    git -C $repo add timelog/sessions.csv *> $null
+    git -C $repo commit --quiet -m 'timelog: session rows (auto-commit, session-start-sync)' *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Output '[workbench] auto-committed timelog session rows.'
+        if ($hasOrigin) { git -C $repo push --quiet *> $null }
+        $dirty = git -C $repo status --porcelain
+    }
+}
 if ($dirty) {
-    Write-Output '[workbench] Uncommitted changes left from a previous session. Commit them now (draft the message from the diff), then push.'
+    Write-Output "[workbench] Uncommitted changes in $repo left from a previous session. Commit them now (draft the message from the diff), then push."
 }
 
 # 4. Converge: merge each sync branch from the other machines. Conflicts are
