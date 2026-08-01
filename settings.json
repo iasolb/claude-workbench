@@ -21,6 +21,29 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/hooks/session-start-sync.ps1\""
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/queue-print.sh"
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/hooks/queue-print.ps1\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/queue-nudge.sh"
+          },
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/hooks/queue-nudge.ps1\""
           }
         ]
       }

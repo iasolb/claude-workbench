@@ -21,6 +21,11 @@ you work.
   converges at the start of every session. A SessionEnd hook stages (never
   commits) whatever changed, and a Notification hook raises a desktop
   notification when Claude is waiting on you.
+- **An optional priority queue**: a `queue/` directory holding your standing
+  priorities and the in-flight state of whatever's being worked. A
+  SessionStart hook prints it into context so fresh sessions start on the
+  right work without prompting, and a Stop hook nudges Claude to write the
+  arc state back before long sessions end.
 
 Everything works on macOS, Linux, and Windows. Each hook ships in both `.sh`
 and `.ps1` form; `settings.json` wires up both and each script no-ops on the
@@ -54,12 +59,36 @@ the repo, just re-run the installer.
 - `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`
 - `commands/`: custom slash commands (empty to start)
 - `agents/`: custom subagents (empty to start)
-- `hooks/`: the session-start, session-end, and notification hooks
+- `hooks/`: the session-start, session-end, notification, and queue hooks
 - `memory/`: Claude's persistent memory (`MEMORY.md` index plus one file per
   fact, written by Claude)
 - `examples/rules/`: starter rules to copy into `rules/`
+- `examples/queue/`: starter queue files (see "The priority queue" below)
 - `install/`: the per-platform installers
 - `docs/`: troubleshooting
+
+## The priority queue (optional)
+
+A lightweight standing to-do that survives sessions and machines, designed
+around one habit: a fresh session should start on the right work without you
+re-explaining where things stand.
+
+- `queue/global.md` holds numbered priorities, hand-ordered by you. The
+  format contract: each item's first line is a self-contained headline,
+  because the SessionStart hook prints only the headlines.
+- `queue/current.md` holds the in-flight state of the item being worked (the
+  "arc"), so a fresh session resumes mid-task without re-deriving anything.
+  On completion it's cleared back to a stub and durable outcomes move to
+  `memory/`.
+- `hooks/queue-print.*` (SessionStart) prints headlines + the current arc
+  into context; `hooks/queue-nudge.*` (Stop) nudges Claude, at most once per
+  session, when a substantial session ends without `current.md` being
+  updated.
+
+Opt in by copying `examples/queue/` to `queue/` in the repo root and
+committing; the hooks stay silent until that directory exists. Claude
+maintains the files from there: it annotates and removes items as work
+completes and keeps the arc current, while the ordering stays yours.
 
 ## Multi-machine sync (advanced)
 
