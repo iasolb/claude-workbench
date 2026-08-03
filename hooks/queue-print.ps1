@@ -25,6 +25,19 @@ if (-not (Test-Path (Join-Path $repo 'queue'))) { exit 0 }
 
 $global = Join-Path $repo 'queue\global.md'
 $current = Join-Path $repo 'queue\current.md'
+$inbox = Join-Path $repo 'queue\inbox.md'
+
+# Remote drop point: unchecked items filed from elsewhere (the GitHub web
+# UI, a phone) for this machine to pick up. Printed first because it is the
+# freshest intent in the repo. Silent when empty, and optional: a missing
+# inbox.md is not an error.
+if (Test-Path $inbox) {
+    $pending = Get-Content $inbox | Where-Object { $_ -match '^- \[ \]' }
+    if ($pending) {
+        Write-Output "[queue] INBOX: remote requests waiting (queue/inbox.md, work these first):"
+        $pending
+    }
+}
 
 if (Test-Path $global) {
     Write-Output "[queue] standing priorities (headlines; full detail in queue/global.md):"

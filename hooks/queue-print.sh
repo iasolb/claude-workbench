@@ -26,6 +26,16 @@ REPO="$(sed -n 's/^REPO_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
 
 GLOBAL="$REPO/queue/global.md"
 CURRENT="$REPO/queue/current.md"
+INBOX="$REPO/queue/inbox.md"
+
+# Remote drop point: unchecked items filed from elsewhere (the GitHub web
+# UI, a phone) for this machine to pick up. Printed first because it is the
+# freshest intent in the repo. Silent when empty, and optional: a missing
+# inbox.md is not an error.
+if [[ -f "$INBOX" ]] && grep -qE '^- \[ \]' "$INBOX"; then
+    echo "[queue] INBOX: remote requests waiting (queue/inbox.md, work these first):"
+    grep -E '^- \[ \]' "$INBOX"
+fi
 
 if [[ -f "$GLOBAL" ]]; then
     echo "[queue] standing priorities (headlines; full detail in queue/global.md):"
