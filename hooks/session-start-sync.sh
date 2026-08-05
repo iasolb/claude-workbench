@@ -86,22 +86,35 @@ fi
 
 # 4. Converge: merge each sync branch from the other machines. Conflicts are
 # deliberately left in the worktree for Claude to resolve immediately.
+#
+# A dirty tree used to SKIP the merge entirely, so a rule or settings fix
+# pushed from another environment could sit unmerged for sessions while this
+# machine kept running the old config. Convergence is not optional: stash,
+# merge, restore.
 if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
+    STASHED=0
+    if [[ -n "$DIRTY" ]]; then
+        if git -C "$REPO" stash push --include-untracked --quiet -m 'session-start-sync: pre-merge autostash' >/dev/null 2>&1; then
+            STASHED=1
+            echo "[workbench] stashed local changes to merge; restored below."
+        fi
+    fi
     for B in ${SYNC_BRANCHES//,/ }; do
         OTHER="origin/$B"
         git -C "$REPO" rev-parse --verify --quiet "$OTHER" >/dev/null 2>&1 || continue
         BEHIND="$(git -C "$REPO" rev-list --count "HEAD..$OTHER")"
         [[ "$BEHIND" -gt 0 ]] || continue
-        if [[ -n "$DIRTY" ]]; then
-            echo "[workbench] $OTHER has $BEHIND commit(s) not merged here. After committing the local changes above, run: git -C \"$REPO\" merge --no-edit $OTHER"
-            continue
-        fi
         if git -C "$REPO" merge --no-edit "$OTHER" >/dev/null 2>&1; then
             echo "[workbench] merged $BEHIND commit(s) from $OTHER."
         else
             echo "[workbench] MERGE CONFLICT with $OTHER. Resolve it in $REPO before any other work: keep both sides' facts, dedupe MEMORY.md, commit, push."
         fi
     done
+    if [[ "$STASHED" -eq 1 ]]; then
+        if ! git -C "$REPO" stash pop >/dev/null 2>&1; then
+            echo "[workbench] STASH LEFT IN PLACE: the pre-merge autostash did not reapply cleanly. Recover it with: git -C \"$REPO\" stash list, then git -C \"$REPO\" stash pop"
+        fi
+    fi
 fi
 
 # 5. Anything unpushed, including merges just made.

@@ -88,22 +88,34 @@ if ($dirty) {
 
 # 4. Converge: merge each sync branch from the other machines. Conflicts are
 # deliberately left in the worktree for Claude to resolve immediately.
+# A dirty tree used to SKIP the merge entirely, so a rule or settings fix
+# pushed from another environment could sit unmerged for sessions while this
+# machine kept running the old config. Convergence is not optional: stash,
+# merge, restore.
 if ($hasOrigin -and $syncBranches) {
+    $stashed = $false
+    if ($dirty) {
+        git -C $repo stash push --include-untracked --quiet -m 'session-start-sync: pre-merge autostash' *> $null
+        $stashed = ($LASTEXITCODE -eq 0)
+        if ($stashed) { Write-Output '[workbench] stashed local changes to merge; restored below.' }
+    }
     foreach ($b in ($syncBranches -split '[, ]+' | Where-Object { $_ })) {
         $other = "origin/$b"
         git -C $repo rev-parse --verify --quiet $other *> $null
         if ($LASTEXITCODE -ne 0) { continue }
         $behind = [int](git -C $repo rev-list --count "HEAD..$other")
         if ($behind -eq 0) { continue }
-        if ($dirty) {
-            Write-Output "[workbench] $other has $behind commit(s) not merged here. After committing the local changes above, run: git -C `"$repo`" merge --no-edit $other"
-            continue
-        }
         git -C $repo merge --no-edit $other *> $null
         if ($LASTEXITCODE -eq 0) {
             Write-Output "[workbench] merged $behind commit(s) from $other."
         } else {
             Write-Output "[workbench] MERGE CONFLICT with $other. Resolve it in $repo before any other work: keep both sides' facts, dedupe MEMORY.md, commit, push."
+        }
+    }
+    if ($stashed) {
+        git -C $repo stash pop *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "[workbench] STASH LEFT IN PLACE: the pre-merge autostash did not reapply cleanly. Recover it with: git -C `"$repo`" stash list, then git -C `"$repo`" stash pop"
         }
     }
 }
