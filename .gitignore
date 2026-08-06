@@ -1,1 +1,7 @@
 *.bak
+
+# Local-only config, never committed: ntfy push topics and gmail MCP OAuth
+# tokens. Both live under the home profile outside this repo; these entries
+# are defense-in-depth in case either is ever relocated under a repo dir.
+ntfy-topics.json
+.gmail-mcp/
