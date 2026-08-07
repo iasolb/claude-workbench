@@ -91,7 +91,22 @@ fi
 # pushed from another environment could sit unmerged for sessions while this
 # machine kept running the old config. Convergence is not optional: stash,
 # merge, restore.
-if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
+#
+# A stash pop that conflicts leaves BOTH the markers in the worktree AND the
+# stash on the list. Stashing that state again next session compounds it:
+# observed 2026-08-07, three orphan stashes and one card's frontmatter
+# corrupted twice. So never stash a tree that still carries markers. Matched on
+# git's own "leftover conflict marker" line rather than `diff --check`'s exit
+# code, which also fires on trailing whitespace.
+MARKERS=0
+if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" && -n "$DIRTY" ]]; then
+    if git -C "$REPO" diff --check 2>/dev/null | grep -q 'leftover conflict marker'; then
+        MARKERS=1
+    fi
+fi
+if [[ "$MARKERS" -eq 1 ]]; then
+    echo "[workbench] CONFLICT MARKERS still in the worktree of $REPO. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Fix the files first (git -C \"$REPO\" diff --check names them), commit, then start a fresh session to merge."
+elif [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
     STASHED=0
     if [[ -n "$DIRTY" ]]; then
         if git -C "$REPO" stash push --include-untracked --quiet -m 'session-start-sync: pre-merge autostash' >/dev/null 2>&1; then
@@ -112,7 +127,8 @@ if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
     done
     if [[ "$STASHED" -eq 1 ]]; then
         if ! git -C "$REPO" stash pop >/dev/null 2>&1; then
-            echo "[workbench] STASH LEFT IN PLACE: the pre-merge autostash did not reapply cleanly. Recover it with: git -C \"$REPO\" stash list, then git -C \"$REPO\" stash pop"
+            CONFLICTED="$(git -C "$REPO" diff --name-only --diff-filter=U | tr '\n' ' ')"
+            echo "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $CONFLICTED, and the stash is STILL on the list. Fix those files by hand FIRST (do not pop again, it will re-conflict), commit, then check the stash with git -C \"$REPO\" stash show -p and drop it if its content already landed."
         fi
     fi
 fi

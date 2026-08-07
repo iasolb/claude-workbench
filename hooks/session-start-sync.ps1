@@ -92,7 +92,23 @@ if ($dirty) {
 # pushed from another environment could sit unmerged for sessions while this
 # machine kept running the old config. Convergence is not optional: stash,
 # merge, restore.
-if ($hasOrigin -and $syncBranches) {
+# A stash pop that conflicts leaves BOTH the markers in the worktree AND the
+# stash on the list. Stashing that state again next session compounds it:
+# observed 2026-08-07, three orphan stashes and one card's frontmatter
+# corrupted twice. So never stash a tree that still carries markers. Matched on
+# git's own "leftover conflict marker" line rather than `diff --check`'s exit
+# code, which also fires on trailing whitespace.
+$markers = $false
+if ($hasOrigin -and $syncBranches -and $dirty) {
+    # No stderr redirection on purpose: in Windows PowerShell 5.1 redirecting a
+    # native exe's stderr wraps each line in a NativeCommandError.
+    $check = git -C $repo diff --check
+    $markers = [bool]($check | Select-String -Quiet 'leftover conflict marker')
+}
+if ($markers) {
+    Write-Output "[workbench] CONFLICT MARKERS still in the worktree of $repo. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Fix the files first (git -C `"$repo`" diff --check names them), commit, then start a fresh session to merge."
+}
+elseif ($hasOrigin -and $syncBranches) {
     $stashed = $false
     if ($dirty) {
         git -C $repo stash push --include-untracked --quiet -m 'session-start-sync: pre-merge autostash' *> $null
@@ -115,7 +131,8 @@ if ($hasOrigin -and $syncBranches) {
     if ($stashed) {
         git -C $repo stash pop *> $null
         if ($LASTEXITCODE -ne 0) {
-            Write-Output "[workbench] STASH LEFT IN PLACE: the pre-merge autostash did not reapply cleanly. Recover it with: git -C `"$repo`" stash list, then git -C `"$repo`" stash pop"
+            $conflicted = (git -C $repo diff --name-only --diff-filter=U) -join ', '
+            Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted , and the stash is STILL on the list. Fix those files by hand FIRST (do not pop again, it will re-conflict), commit, then check the stash with git -C `"$repo`" stash show -p and drop it if its content already landed."
         }
     }
 }
