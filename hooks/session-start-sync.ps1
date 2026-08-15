@@ -95,18 +95,27 @@ if ($dirty) {
 # A stash pop that conflicts leaves BOTH the markers in the worktree AND the
 # stash on the list. Stashing that state again next session compounds it:
 # observed 2026-08-07, three orphan stashes and one card's frontmatter
-# corrupted twice. So never stash a tree that still carries markers. Matched on
-# git's own "leftover conflict marker" line rather than `diff --check`'s exit
-# code, which also fires on trailing whitespace.
+# corrupted twice. So never stash a tree that still carries markers.
+#
+# DETECTION IS A CONTENT GREP, NOT `diff --check`, and that is the whole point
+# (fixed 2026-08-15 after the guard failed and 17 stashes had accumulated).
+# `git diff --check` compares the WORKTREE TO THE INDEX, so it is blind to
+# exactly the two states this guard exists to catch: a failed `stash pop`
+# STAGES its conflicted result, and four separate passes have COMMITTED
+# markers outright. In both cases worktree and index agree, `diff --check`
+# says nothing, and the hook cheerfully re-stashed a corrupted tree. `git
+# grep` reads file CONTENT and finds a marker wherever it sits. Verified on
+# a real repo the day it was written: zero false positives, and prose that
+# merely discusses markers does not match because the pattern is anchored.
 $markers = $false
-if ($hasOrigin -and $syncBranches -and $dirty) {
+if ($hasOrigin -and $syncBranches) {
     # No stderr redirection on purpose: in Windows PowerShell 5.1 redirecting a
     # native exe's stderr wraps each line in a NativeCommandError.
-    $check = git -C $repo diff --check
-    $markers = [bool]($check | Select-String -Quiet 'leftover conflict marker')
+    git -C $repo grep -l -I -E '^<<<<<<< |^>>>>>>> ' *> $null
+    $markers = ($LASTEXITCODE -eq 0)
 }
 if ($markers) {
-    Write-Output "[workbench] CONFLICT MARKERS still in the worktree of $repo. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Fix the files first (git -C `"$repo`" diff --check names them), commit, then start a fresh session to merge."
+    Write-Output "[workbench] CONFLICT MARKERS in $repo, staged or committed or both. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Name the files with git -C `"$repo`" grep -l -E '^<<<<<<< ', fix them, commit, then start a fresh session to merge."
 }
 elseif ($hasOrigin -and $syncBranches) {
     $stashed = $false
@@ -134,6 +143,17 @@ elseif ($hasOrigin -and $syncBranches) {
             $conflicted = (git -C $repo diff --name-only --diff-filter=U) -join ', '
             Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted , and the stash is STILL on the list. Fix those files by hand FIRST (do not pop again, it will re-conflict), commit, then check the stash with git -C `"$repo`" stash show -p and drop it if its content already landed."
         }
+    }
+}
+
+# 4b. Orphan stashes. A failed pop leaves its stash on the list and nothing
+# has ever swept them: SEVENTEEN had piled up by 2026-08-15, each one a
+# convergence that silently half-failed. The count is the only signal that
+# ever existed, so print it.
+if ($hasOrigin) {
+    $stashCount = @(git -C $repo stash list).Count
+    if ($stashCount -gt 0) {
+        Write-Output "[workbench] $stashCount leftover stash(es) in $repo from failed pops. Inspect the newest with git -C `"$repo`" stash show -p and drop what already landed: git -C `"$repo`" stash drop"
     }
 }
 

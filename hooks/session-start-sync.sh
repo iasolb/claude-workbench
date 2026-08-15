@@ -95,17 +95,26 @@ fi
 # A stash pop that conflicts leaves BOTH the markers in the worktree AND the
 # stash on the list. Stashing that state again next session compounds it:
 # observed 2026-08-07, three orphan stashes and one card's frontmatter
-# corrupted twice. So never stash a tree that still carries markers. Matched on
-# git's own "leftover conflict marker" line rather than `diff --check`'s exit
-# code, which also fires on trailing whitespace.
+# corrupted twice. So never stash a tree that still carries markers.
+#
+# DETECTION IS A CONTENT GREP, NOT `diff --check`, and that is the whole point
+# (fixed 2026-08-15 after the guard failed and 17 stashes had accumulated).
+# `git diff --check` compares the WORKTREE TO THE INDEX, so it is blind to
+# exactly the two states this guard exists to catch: a failed `stash pop`
+# STAGES its conflicted result, and four separate passes have COMMITTED
+# markers outright. In both cases worktree and index agree, `diff --check`
+# says nothing, and the hook cheerfully re-stashed a corrupted tree. `git
+# grep` reads file CONTENT and finds a marker wherever it sits. Verified on
+# a real repo the day it was written: zero false positives, and prose that
+# merely discusses markers does not match because the pattern is anchored.
 MARKERS=0
-if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" && -n "$DIRTY" ]]; then
-    if git -C "$REPO" diff --check 2>/dev/null | grep -q 'leftover conflict marker'; then
+if [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
+    if git -C "$REPO" grep -l -I -E '^<<<<<<< |^>>>>>>> ' >/dev/null 2>&1; then
         MARKERS=1
     fi
 fi
 if [[ "$MARKERS" -eq 1 ]]; then
-    echo "[workbench] CONFLICT MARKERS still in the worktree of $REPO. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Fix the files first (git -C \"$REPO\" diff --check names them), commit, then start a fresh session to merge."
+    echo "[workbench] CONFLICT MARKERS in $REPO, staged or committed or both. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Name the files with git -C \"$REPO\" grep -l -E '^<<<<<<< ', fix them, commit, then start a fresh session to merge."
 elif [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
     STASHED=0
     if [[ -n "$DIRTY" ]]; then
@@ -130,6 +139,17 @@ elif [[ "$HAS_ORIGIN" -eq 1 && -n "$SYNC_BRANCHES" ]]; then
             CONFLICTED="$(git -C "$REPO" diff --name-only --diff-filter=U | tr '\n' ' ')"
             echo "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $CONFLICTED, and the stash is STILL on the list. Fix those files by hand FIRST (do not pop again, it will re-conflict), commit, then check the stash with git -C \"$REPO\" stash show -p and drop it if its content already landed."
         fi
+    fi
+fi
+
+# 4b. Orphan stashes. A failed pop leaves its stash on the list and nothing
+# has ever swept them: SEVENTEEN had piled up by 2026-08-15, each one a
+# convergence that silently half-failed. The count is the only signal that
+# ever existed, so print it.
+if [[ "$HAS_ORIGIN" -eq 1 ]]; then
+    STASH_COUNT="$(git -C "$REPO" stash list | wc -l | tr -d ' ')"
+    if [[ "$STASH_COUNT" -gt 0 ]]; then
+        echo "[workbench] $STASH_COUNT leftover stash(es) in $REPO from failed pops. Inspect the newest with git -C \"$REPO\" stash show -p and drop what already landed: git -C \"$REPO\" stash drop"
     fi
 fi
 
