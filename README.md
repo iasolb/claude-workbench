@@ -57,9 +57,12 @@ the repo, just re-run the installer.
 - `CLAUDE.md`: global instructions, loaded in every session
 - `settings.json`: permissions and hooks
 - `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`
-- `commands/`: custom slash commands (empty to start)
+- `commands/`: custom slash commands, including the five personas and five
+  lightweight commands described below
 - `agents/`: custom subagents (empty to start)
-- `hooks/`: the session-start, session-end, notification, and queue hooks
+- `hooks/`: every session hook, each shipped as a `.sh`/`.ps1` pair
+- `tools/`: the syntax checker and the two hook case matrices (see
+  `tools/README.md`)
 - `memory/`: Claude's persistent memory (`MEMORY.md` index plus one file per
   fact, written by Claude)
 - `examples/rules/`: starter rules to copy into `rules/`
@@ -89,6 +92,32 @@ Opt in by copying `examples/queue/` to `queue/` in the repo root and
 committing; the hooks stay silent until that directory exists. Claude
 maintains the files from there: it annotates and removes items as work
 completes and keeps the arc current, while the ordering stays yours.
+
+## The personas (optional)
+
+`commands/` ships a working division of labour rather than a description of
+one. **A session is exactly ONE persona**, chosen when you start it. That is
+the whole point: each one has a different reading list, a different scope, and
+a different idea of when it is finished, and a session that tries to be two of
+them does neither job well.
+
+| Command | What it is for |
+|---|---|
+| `/quarterback` | The senior seat. Structural faults, security and data integrity, tradeoffs talked through with you. Runs the cleanup pass inline at the end of its turn. |
+| `/intake` | Turns a request into a job card, including the permission pre-flight that names every command the card will run. Never works the card it writes. |
+| `/driver` | Works ONE card, runs its test gate, pastes real output as evidence, then stops. |
+| `/fast-lane` | Process bugs and permission holes. The only writer of the allow/deny list, and the lane your screenshots go to. Meant to run in parallel with the others. |
+| `/cleanup-crew` | Keeps the queue, the memory files and the persona logs honest: converge, prune, guard priority, fold yesterday's logs into one. |
+
+Five lightweight commands sit alongside them and are NOT personas, so they
+have no turn report and no wrap-up ritual: `/debug`, `/explain`, `/find`
+(your own docs), `/research` (the open web), and `/scaffold` (structure and
+stubs only, never implementations).
+
+The personas reference `rules/jobs.md`, `rules/permission-loops.md`,
+`rules/style.md` and `docs/command-forms.md`. Ship those alongside them, or
+edit the references out: a persona that points at a rule file you do not have
+is a pointer with nothing to point at.
 
 ## Multi-machine sync (advanced)
 
