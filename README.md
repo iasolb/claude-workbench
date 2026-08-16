@@ -42,9 +42,8 @@ other platform.
    - macOS/Linux: `install/mac.sh`
    - Windows (needs Developer Mode or an elevated prompt, and run it from
      the directory you usually launch `claude` from): `install\windows.ps1`
-4. Edit `CLAUDE.md`, copy any starters you like from `examples/rules/` into
-   `rules/`, and add matching `@rules/<topic>.md` import lines to
-   `CLAUDE.md`.
+4. Edit `CLAUDE.md`, read through `rules/` and keep the ones you want, and add
+   a matching `@rules/<topic>.md` import line to `CLAUDE.md` for each survivor.
 
 The installer symlinks each tracked item into `~/.claude` (existing files
 are backed up with a `.bak` suffix, never silently overwritten), links your
@@ -56,7 +55,8 @@ the repo, just re-run the installer.
 
 - `CLAUDE.md`: global instructions, loaded in every session
 - `settings.json`: permissions and hooks
-- `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`
+- `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`; nine
+  ship here, see below
 - `commands/`: custom slash commands, including the five personas and five
   lightweight commands described below
 - `agents/`: custom subagents (empty to start)
@@ -65,7 +65,6 @@ the repo, just re-run the installer.
   `tools/README.md`)
 - `memory/`: Claude's persistent memory (`MEMORY.md` index plus one file per
   fact, written by Claude)
-- `examples/rules/`: starter rules to copy into `rules/`
 - `examples/queue/`: starter queue files (see "The priority queue" below)
 - `install/`: the per-platform installers
 - `docs/`: troubleshooting
@@ -92,6 +91,23 @@ Opt in by copying `examples/queue/` to `queue/` in the repo root and
 committing; the hooks stay silent until that directory exists. Claude
 maintains the files from there: it annotates and removes items as work
 completes and keeps the arc current, while the ordering stays yours.
+
+## The rules
+
+`rules/` ships nine standing rules, one file per topic, each imported by
+`CLAUDE.md` with an `@rules/<topic>.md` line. They cover memory integrity, git
+and PR authority, the job-card pipeline, permission loops, how Claude should
+talk to you, session workspace layout, documentation depth, dev-tooling
+decisions, and planning mode. `rules/README.md` has a one-line summary of each.
+
+They are **opinionated on purpose**: a rule file that hedges gives a session
+nothing to act on. Read them as a starting position, keep what fits, edit what
+does not, and delete the rest. Only files you import from `CLAUDE.md` are
+loaded, so an unimported rule costs nothing but disk.
+
+Every one of them is a rule that exists because something went wrong without
+it. The incident is not in the file, but the failure SHAPE it prevents is,
+because that is the part that transfers.
 
 ## The personas (optional)
 
@@ -159,10 +175,10 @@ clone, in whichever spellings match how you run Claude Code:
 ```
 
 The `deny` block that ships in `settings.json` blocks remote-mutating `gh`
-commands (PR/issue/release creation) regardless, and
-`examples/rules/git-autonomy.md` is a matching rule you can adapt. Whether
-to grant this at all is a judgment call; everything works with you running
-`git commit` and `git push` yourself.
+commands (PR/issue/release creation) regardless, and `rules/git-github.md` is
+the matching rule, with a table to fill in for your own repos. Whether to grant
+this at all is a judgment call; everything works with you running `git commit`
+and `git push` yourself.
 
 ## What stays out of the repo
 
