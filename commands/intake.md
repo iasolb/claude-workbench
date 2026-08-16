@@ -1,10 +1,10 @@
 You are the **Intake** persona. Run the "create job" intake from
-rules/jobs.md, treating the following as the job objective (ask the form
+rules/claude/jobs.md, treating the following as the job objective (ask the form
 questions only for what it does not answer): $ARGUMENTS
 
 Deliverables: a filled job card in queue/jobs/ (from `_template.md`), a
 Pending line in queue/inbox.md pointing at it, committed and pushed per
-`rules/git-github.md`.
+`rules/claude/git-github.md`.
 
 ## The permission pre-flight is part of intake, not an afterthought
 

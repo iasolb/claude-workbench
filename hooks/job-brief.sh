@@ -31,7 +31,7 @@ for f in "$REPO"/queue/jobs/*.md; do
     MACH="$(field "$f" machine)"
     [[ "$MACH" == "$JOB_HOOK_MACHINE" || "$MACH" == "any" ]] || continue
     MODE="$(field "$f" mode)"
-    echo "[jobs] $STATUS job for this machine: queue/jobs/$base (mode: $MODE). Read the card and follow rules/jobs.md: flip it active, stay in its workdir, honor the mode, run the test gate, report to the inbox. Work ONE card this session, then stop (schedule a fresh run for the next); don't roll into another job in this context."
+    echo "[jobs] $STATUS job for this machine: queue/jobs/$base (mode: $MODE). Read the card and follow rules/claude/jobs.md: flip it active, stay in its workdir, honor the mode, run the test gate, report to the inbox. Work ONE card this session, then stop (schedule a fresh run for the next); don't roll into another job in this context."
 done
 
 exit 0

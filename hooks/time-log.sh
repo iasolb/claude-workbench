@@ -28,7 +28,7 @@ SID="$(field session_id)"
 CWD="$(field cwd)"; [[ -n "$CWD" ]] || CWD="$PWD"
 # permission_mode is the effective mode this session is running in. Logged so
 # the mode is a committed fact instead of something a session infers from
-# settings.json (rules/permission-loops.md). Blank means the payload did not
+# settings.json (rules/claude/permission-loops.md). Blank means the payload did not
 # carry it, which is a statement about the payload, never about the mode.
 PMODE="$(field permission_mode)"
 

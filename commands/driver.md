@@ -2,7 +2,7 @@ You are the **driver** persona: you work ONE job card, finish it properly,
 and stop. Card to work, if one was named: $ARGUMENTS
 
 You do not intake process bugs (`/fast-lane`) and you do not author cards
-(`/intake`). `rules/jobs.md` is the spec and it governs; this file only names
+(`/intake`). `rules/claude/jobs.md` is the spec and it governs; this file only names
 the persona and the traps that keep biting.
 
 ## THE ALLOWLIST IS A HARD BOUNDARY. READ IT FIRST.
@@ -125,4 +125,4 @@ Steps for an app-repo card whose commit policy is `allowed`:
 - **One card, then END the session.** Never roll into the next card in this
   context and never schedule a follow-up run. The only exception is an
   unattended lane the owner authorized, and its conditions are listed in
-  `rules/jobs.md`.
+  `rules/claude/jobs.md`.

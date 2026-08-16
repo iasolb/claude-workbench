@@ -25,7 +25,7 @@ Get-ChildItem -Path $JobsDir -Filter *.md | Where-Object { $_.Name -notlike '_*'
     $mach = Get-Field $txt "machine"
     if ($mach -ne $Machine -and $mach -ne "any") { return }
     $mode = Get-Field $txt "mode"
-    Write-Output "[jobs] $status job for this machine: queue/jobs/$($_.Name) (mode: $mode). Read the card and follow rules/jobs.md: flip it active, stay in its workdir, honor the mode, run the test gate, report to the inbox. Work ONE card this session, then stop (schedule a fresh run for the next); don't roll into another job in this context."
+    Write-Output "[jobs] $status job for this machine: queue/jobs/$($_.Name) (mode: $mode). Read the card and follow rules/claude/jobs.md: flip it active, stay in its workdir, honor the mode, run the test gate, report to the inbox. Work ONE card this session, then stop (schedule a fresh run for the next); don't roll into another job in this context."
 }
 
 exit 0

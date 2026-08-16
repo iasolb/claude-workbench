@@ -24,7 +24,7 @@ in that driver's own log, where the lane that fixes holes never looks.
 Lane ten seconds; a missed one costs a click forever, on every future session.
 That asymmetry is the whole reason the parallel lane exists.
 
-This NARROWS `rules/memory-integrity.md` rule 8 for the permission list
+This NARROWS `rules/shared/memory-integrity.md` rule 8 for the permission list
 specifically: that rule still says fix-do-not-report, but the allow/deny list
 has one writer. Guard hooks, scheduled tasks and gitignore are unchanged and
 still get fixed on sight by whoever finds them.

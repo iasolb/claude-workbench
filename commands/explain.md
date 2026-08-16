@@ -1,4 +1,4 @@
-Explain the thing below in plain words (rules/style.md golden rule): no
+Explain the thing below in plain words (rules/shared/style.md golden rule): no
 jargon, no card IDs or internal shorthand unless you also say what it means.
 Lightweight command, not a persona: no turn report, no wrap-up ritual.
 Topic, if one was given: $ARGUMENTS

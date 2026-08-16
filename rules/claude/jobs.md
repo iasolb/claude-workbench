@@ -34,7 +34,7 @@ filename (`YYYY-MM-DD-<slug>.md`). Standing work with no day carries no
 day's chain. Nothing is ever renumbered: renumbering breaks every Report,
 inbox line and log that cites the old number, to fix nothing.
 
-The number is never how I am told about a card (`rules/style.md`). It
+The number is never how I am told about a card (`rules/shared/style.md`). It
 sequences a lane for a driver; it is not vocabulary.
 
 ## Intake

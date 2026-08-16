@@ -15,7 +15,7 @@
 # Columns: count, first_seen, last_seen, disposition, tool, command
 # `disposition` starts as `?`; the SESSION fills it in (once / always /
 # denied) at wrap-up, because a hook fires BEFORE the answer exists and
-# cannot see which button was pressed. Contract: rules/permission-loops.md.
+# cannot see which button was pressed. Contract: rules/claude/permission-loops.md.
 #
 # macOS side; Windows runs prompt-log.ps1. Always exits 0.
 

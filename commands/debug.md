@@ -14,5 +14,5 @@ $ARGUMENTS
   (needs a decision that is not yours, needs a stack you do not have), say
   exactly what you found and what unblocks it; do not paper over it.
 - A question about file contents or location is a Grep/Glob/Read call, never
-  a shell one-liner (rules/permission-loops.md). Every shell call you do
+  a shell one-liner (rules/claude/permission-loops.md). Every shell call you do
   need still comes from `docs/command-forms.md` in a repo that has one.

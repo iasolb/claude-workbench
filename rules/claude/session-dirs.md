@@ -18,4 +18,4 @@ that is one instance, not a new default. Record it as a dated instance rather
 than rewriting this rule; if I redirect a second time, promote it to the
 default and delete the note. Generalizing from a single aside is the same
 failure as writing a plausible mechanism down as an observation
-(`rules/memory-integrity.md` rule 2).
+(`rules/shared/memory-integrity.md` rule 2).

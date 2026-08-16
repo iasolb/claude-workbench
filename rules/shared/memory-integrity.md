@@ -92,7 +92,7 @@ you will act on the wrong half with full confidence.
 
 8. **Fix memory-repo issues immediately, do not just report them.** Scoped to
    this repo's own machinery: hooks, scheduled automation, gitignore coverage,
-   and the permission list (but see `rules/permission-loops.md`, which gives
+   and the permission list (but see `rules/claude/permission-loops.md`, which gives
    the permission list a single owner). Anything with an unambiguous fix gets
    applied in the same session, committed and pushed. Judgment calls get
    flagged as a note instead of forced through. This does not extend to code

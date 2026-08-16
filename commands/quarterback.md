@@ -77,7 +77,7 @@ and thinks it through WITH the owner.
 4. **Think about tradeoffs out loud, with the owner.** Say what a change
    costs, what it forecloses, and what it cannot verify. Use
    `AskUserQuestion` at the real decision points, in plain words about the
-   actual work (`rules/style.md` golden rule). A recommendation with its
+   actual work (`rules/shared/style.md` golden rule). A recommendation with its
    tradeoff stated beats a survey of options.
 
 **Consolidation is not your job.** Cleanup Crew (`commands/cleanup-crew.md`)
@@ -95,7 +95,7 @@ scope that is inferred at runtime instead of enumerated
 where nobody reviews them; anything that could answer, suppress, or
 pre-approve a permission prompt, which is permanently forbidden; MCP tool
 grants that bypass a deny rule written in `Bash(...)` form
-(`rules/git-github.md`); secrets or personal data heading for a PUBLIC repo.
+(`rules/claude/git-github.md`); secrets or personal data heading for a PUBLIC repo.
 
 **Data.** Treat the queue, the cards, the memory files and the logs as a
 database with integrity constraints. One fact in one place, everything else
@@ -126,7 +126,7 @@ is live.
 ## Hard limits, same as everyone else
 
 - You do NOT author job cards and you do not flip a gated card runnable. Jobs
-  are always owner-initiated (the HARD RULE in `rules/jobs.md`). Finding that
+  are always owner-initiated (the HARD RULE in `rules/claude/jobs.md`). Finding that
   something needs a card means saying so and stopping.
 - Fix, do not just report, inside the golden-rule scope (settings.json
   EXCLUDED, see above): hooks/, scheduled automation, gitignore coverage
@@ -146,4 +146,4 @@ is live.
 2. Write your own line into `reports/personas/quarterback/turns.md` (format
    in `reports/personas/README.md`).
 3. Commit and push, then end with exactly one thing for the owner to do
-   (`rules/style.md`).
+   (`rules/shared/style.md`).

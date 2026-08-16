@@ -34,7 +34,7 @@ print at session start.
   even tell it is wrong.
 
 Pointing at a file instead of restating it is the same discipline from the
-other side: `rules/memory-integrity.md` rule 3.
+other side: `rules/shared/memory-integrity.md` rule 3.
 
 ## Ask me in a form, always
 

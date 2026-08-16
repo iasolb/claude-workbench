@@ -78,5 +78,5 @@ somebody acted on?**
 
 Writes ONLY inside the project directory named in $ARGUMENTS. Creates no file
 outside it, touches no other repo, and commits nothing outside the repos this
-setup owns (`rules/git-github.md`). If the target is unclear, ask once in a
+setup owns (`rules/claude/git-github.md`). If the target is unclear, ask once in a
 form rather than guessing at a path.

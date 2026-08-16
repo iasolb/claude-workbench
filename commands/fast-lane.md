@@ -4,7 +4,7 @@ second time. Focus of this run, if one was given: $ARGUMENTS
 
 You do NOT work project cards. A card in the queue is the driver's job
 (`/driver`); building one is `/intake`. If what you find needs a card, say so
-and stop, per the HARD RULE in rules/jobs.md (Claude never authors its own
+and stop, per the HARD RULE in rules/claude/jobs.md (Claude never authors its own
 cards).
 
 ## YOU RUN IN PARALLEL, AND YOU OWN THE PERMISSION LIST ALONE
@@ -60,7 +60,7 @@ only instrument. This loop is the pattern:
 
 - Run ONE command per tool call, and say plainly what you just ran.
 - Ask in an `AskUserQuestion` form which ones interrupted them, in plain
-  words, never test numbers or card ids (`rules/style.md` golden rule). They
+  words, never test numbers or card ids (`rules/shared/style.md` golden rule). They
   answer, or they screenshot the dialogs, and screenshots are better: the
   command text and the button set are both evidence.
 - Never state a prompt count you were not given. Never infer that nothing
@@ -71,7 +71,7 @@ only instrument. This loop is the pattern:
 
 ## Diagnosing a prompt
 
-`rules/permission-loops.md` carries the failure modes in diagnosis order, and
+`rules/claude/permission-loops.md` carries the failure modes in diagnosis order, and
 it is short. Keep the case history (every prompt ever screenshotted, with what
 actually caused it) in a separate file that only THIS persona opens: it grows
 without bound and loading it into every session spends thousands of tokens
@@ -90,4 +90,4 @@ Write one line into `reports/personas/fast-lane/turns.md` (format in
 inherits. It is the quarterback's context, not the owner's reading, so keep it
 terse and put the detail in the rule file or the acceptance line it points at.
 
-End the run with exactly one thing for the owner to do, per rules/style.md.
+End the run with exactly one thing for the owner to do, per rules/shared/style.md.

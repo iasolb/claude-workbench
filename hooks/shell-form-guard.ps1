@@ -15,7 +15,7 @@
 #   writes  : NOTHING. No file, no network, no state.
 #   decides : "deny" only, on the syntactic forms numbered 1-20 in the .sh
 #             mirror, and no others. Numbers are stable and are cited by
-#             docs/command-forms.md and rules/permission-loops.md; rule 3 is
+#             docs/command-forms.md and rules/claude/permission-loops.md; rule 3 is
 #             RETIRED (a bare `cd` is free) and its number is deliberately not
 #             reused.
 # It can NEVER approve, allow, or suppress a prompt. That pattern is
@@ -153,7 +153,7 @@ try {
     # sneak a plain commit past the guard would still be committing a tree it
     # just resolved by hand.
     if ($unquoted -match '(^|\s)commit(\s|$)' -and $unquoted -match '(^|\s)git(\s|$)|(^|\s)git\s' -and $unquoted -notmatch '\s--(\s|$)' -and $unquoted -notmatch '--amend' -and $unquoted -notmatch '--no-edit') {
-        $reasons += "it runs git commit with no ' -- <path>' pathspec separator. Plain git commit commits the whole INDEX, including files another session staged, and several sessions share this working tree by design. That is how a permissions diff once shipped inside an unrelated commit. Use git -C <repo> commit -m '<one line>' -- <path> <path> (rules/git-github.md)"
+        $reasons += "it runs git commit with no ' -- <path>' pathspec separator. Plain git commit commits the whole INDEX, including files another session staged, and several sessions share this working tree by design. That is how a permissions diff once shipped inside an unrelated commit. Use git -C <repo> commit -m '<one line>' -- <path> <path> (rules/claude/git-github.md)"
     }
     # Rule 14. A drive letter followed by DOUBLED separators (C:\\ or C:\\\\).
     # Whole command: the doubling is inside a path argument. Anchored on the
@@ -238,7 +238,7 @@ try {
     $why = $reasons -join "; and "
     $guidance = @(
         "BLOCKED by shell-form-guard: $why.",
-        "This form always prompts and no settings.json entry can ever fix it (rules/permission-loops.md).",
+        "This form always prompts and no settings.json entry can ever fix it (rules/claude/permission-loops.md).",
         "Rewrite it from the table in docs/command-forms.md: one command per tool call, absolute paths instead of 'cd X &&', the absolute venv interpreter instead of a bare 'python'.",
         "Do NOT ask for permission for this command. Rewriting is the session's work.",
         "If the goal was to read or search a file, use the Read or Grep tool instead. Those need no permission at all and are the intended path."

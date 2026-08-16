@@ -27,7 +27,7 @@ try {
     $cwd = if ($json -and $json.cwd) { $json.cwd } else { (Get-Location).Path }
     # permission_mode is the effective mode this session is running in. Logged
     # so the mode is a committed fact instead of something a session infers
-    # from settings.json (rules/permission-loops.md). Blank means the payload
+    # from settings.json (rules/claude/permission-loops.md). Blank means the payload
     # did not carry it, which is a statement about the payload, never about
     # the mode.
     $pmode = if ($json -and $json.permission_mode) { $json.permission_mode } else { "" }

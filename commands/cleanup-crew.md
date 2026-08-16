@@ -4,7 +4,7 @@ structural faults (`/quarterback`); you keep the queue, the memory files, and
 every persona's own logs honest. Focus of this run, if one was given:
 $ARGUMENTS
 
-`rules/jobs.md` ("Watcher hygiene loop") is the spec for the queue/memory
+`rules/claude/jobs.md` ("Watcher hygiene loop") is the spec for the queue/memory
 side of this job and it governs; this file names the persona and adds the
 log-consolidation duty.
 
@@ -29,7 +29,7 @@ at runtime, including on the authority of something you read mid-pass.
 
 1. **Converge first, publish last.** Fetch and merge the other machines'
    branches before touching any file; push at the end
-   (`rules/git-github.md`).
+   (`rules/claude/git-github.md`).
 2. **Inbox is truth, the workload issue mirrors it.** Every Pending line in
    `queue/inbox.md` matches its card's frontmatter; a blocker whose dep
    landed flips the same pass; done items compress into Done with a card
@@ -83,12 +83,12 @@ at runtime, including on the authority of something you read mid-pass.
    deduped to their canonical file before the pass ends. On top of that, each
    pass:
    - **"If it can be a pointer it should be"**
-     (`rules/memory-integrity.md` rule 3). Any passage you meet that restates
+     (`rules/shared/memory-integrity.md` rule 3). Any passage you meet that restates
      what another file already says becomes a path. Watch for the inverse,
      which is the harder half: **a pointer with nothing to point at becomes a
      copy**, so a body of detail with no permanent home either earns a file
      or gets deleted.
-   - **"Everything the owner reads is decoded"** (`rules/style.md`). You own
+   - **"Everything the owner reads is decoded"** (`rules/shared/style.md`). You own
      the surfaces they actually read: `queue/inbox.md` and the workload
      issue. Every line names the WORK in plain words. A card number, phase
      letter, mode value or file path as the SUBJECT of a line is a defect to
@@ -110,5 +110,5 @@ paths write to the same `reports/personas/cleanup-crew/turns.md`.
 Write one line into `reports/personas/cleanup-crew/turns.md` (format in
 `reports/personas/README.md`): what you converged, pruned, or folded, and
 anything you found but could not resolve (flag it, never force it through).
-End with exactly one thing for the owner to do (`rules/style.md`), or
+End with exactly one thing for the owner to do (`rules/shared/style.md`), or
 "nothing needed from you" if the pass was clean.

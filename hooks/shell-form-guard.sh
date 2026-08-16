@@ -248,7 +248,7 @@ if "\\ " in command or "\\\t" in command:
 if (re.search(r"(^|\s)git(\s|$)", unquoted) and re.search(r"(^|\s)commit(\s|$)", unquoted)
         and not re.search(r"\s--(\s|$)", unquoted) and "--amend" not in unquoted
         and "--no-edit" not in unquoted):
-    reasons.append("it runs git commit with no \" -- <path>\" pathspec separator. Plain git commit commits the whole INDEX, including files another session staged, and several sessions share this working tree by design. That is how a permissions diff once shipped inside an unrelated commit. Use git -C <repo> commit -m \"<one line>\" -- <path> <path> (rules/git-github.md)")
+    reasons.append("it runs git commit with no \" -- <path>\" pathspec separator. Plain git commit commits the whole INDEX, including files another session staged, and several sessions share this working tree by design. That is how a permissions diff once shipped inside an unrelated commit. Use git -C <repo> commit -m \"<one line>\" -- <path> <path> (rules/claude/git-github.md)")
 
 # Rule 14. A drive letter followed by DOUBLED separators. Whole command: the
 # doubling sits inside a path argument. Anchored on the drive letter on purpose,
@@ -319,7 +319,7 @@ if not reasons:
 
 guidance = " ".join([
     "BLOCKED by shell-form-guard: " + "; and ".join(reasons) + ".",
-    "This form always prompts and no settings.json entry can ever fix it (rules/permission-loops.md).",
+    "This form always prompts and no settings.json entry can ever fix it (rules/claude/permission-loops.md).",
     "Rewrite it from the table in docs/command-forms.md: one command per tool call, absolute paths instead of a cd chain, the absolute venv interpreter instead of a bare python.",
     "Do NOT ask for permission for this command: the session rewrites it.",
     "If the goal was to read or search a file, use the Read or Grep tool instead. Those need no permission at all and are the intended path.",

@@ -55,8 +55,9 @@ the repo, just re-run the installer.
 
 - `CLAUDE.md`: global instructions, loaded in every session
 - `settings.json`: permissions and hooks
-- `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`; nine
-  ship here, see below
+- `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`;
+  split into `shared/` (every tool reads them) and `claude/` (Claude Code
+  only), see below
 - `commands/`: custom slash commands, including the five personas and five
   lightweight commands described below
 - `agents/`: custom subagents (empty to start)
@@ -98,7 +99,8 @@ completes and keeps the arc current, while the ordering stays yours.
 `CLAUDE.md` with an `@rules/<topic>.md` line. They cover memory integrity, git
 and PR authority, the job-card pipeline, permission loops, how Claude should
 talk to you, session workspace layout, documentation depth, dev-tooling
-decisions, and planning mode. `rules/README.md` has a one-line summary of each.
+decisions, and planning mode. `rules/README.md` has a one-line summary of each
+and the split into `shared/` and `claude/`.
 
 They are **opinionated on purpose**: a rule file that hedges gives a session
 nothing to act on. Read them as a starting position, keep what fits, edit what
@@ -130,8 +132,8 @@ have no turn report and no wrap-up ritual: `/debug`, `/explain`, `/find`
 (your own docs), `/research` (the open web), and `/scaffold` (structure and
 stubs only, never implementations).
 
-The personas reference `rules/jobs.md`, `rules/permission-loops.md`,
-`rules/style.md` and `docs/command-forms.md`. Ship those alongside them, or
+The personas reference `rules/claude/jobs.md`, `rules/claude/permission-loops.md`,
+`rules/shared/style.md` and `docs/command-forms.md`. Ship those alongside them, or
 edit the references out: a persona that points at a rule file you do not have
 is a pointer with nothing to point at.
 
@@ -175,7 +177,7 @@ clone, in whichever spellings match how you run Claude Code:
 ```
 
 The `deny` block that ships in `settings.json` blocks remote-mutating `gh`
-commands (PR/issue/release creation) regardless, and `rules/git-github.md` is
+commands (PR/issue/release creation) regardless, and `rules/claude/git-github.md` is
 the matching rule, with a table to fill in for your own repos. Whether to grant
 this at all is a judgment call; everything works with you running `git commit`
 and `git push` yourself.
