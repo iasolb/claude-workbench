@@ -139,9 +139,18 @@ elseif ($hasOrigin -and $syncBranches) {
     }
     if ($stashed) {
         git -C $repo stash pop *> $null
-        if ($LASTEXITCODE -ne 0) {
-            $conflicted = (git -C $repo diff --name-only --diff-filter=U) -join ', '
-            Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted , and the stash is STILL on the list. Fix those files by hand FIRST (do not pop again, it will re-conflict), commit, then check the stash with git -C `"$repo`" stash show -p and drop it if its content already landed."
+        # Do NOT infer the pop failed from its exit code. Observed 2026-08-15:
+        # this fired with an EMPTY file list ("CONFLICT MARKERS in  ,") against
+        # a clean tree and an empty stash list, because the pop had fully
+        # applied and dropped. A false alarm that says the repo is corrupt
+        # costs the same trust as a missed real one. Assert on CONTENT.
+        $conflicted = @(git -C $repo diff --name-only --diff-filter=U) -join ', '
+        $stashLeft = @(git -C $repo stash list).Count
+        if ($conflicted) {
+            Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted. Fix those files by hand FIRST (do not pop again, it will re-conflict), then commit."
+        }
+        if ($stashLeft -gt 0) {
+            Write-Output "[workbench] the pre-merge stash is STILL on the list ($stashLeft total). Check it with git -C `"$repo`" stash show -p and drop it if its content already landed."
         }
     }
 }
