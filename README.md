@@ -137,6 +137,17 @@ The personas reference `rules/claude/jobs.md`, `rules/claude/permission-loops.md
 edit the references out: a persona that points at a rule file you do not have
 is a pointer with nothing to point at.
 
+## The QA and review tools (optional)
+
+`commands/` also ships five QA/review tools that delegate to the subagents
+in `agents/`: `/qa-crawl` (drive a web app through its flows, read-only),
+`/qa-cleanup` (apply only owner-approved findings), `/review-abstraction`
+and `/review-api-wrapper` (house-convention reviews), and `/audit-ux`
+(audit a screen against its audience's UX pattern). See `commands/README.md`
+and `agents/README.md`. Two agents need one-time setup before first use:
+`web-qa-crawler.md` wants your deployed staging hosts in its authorized
+targets, and `qa-cleanup-crew.md` wants your projects root.
+
 ## Multi-machine sync (advanced)
 
 Each machine lives permanently on its own branch, and every session starts
