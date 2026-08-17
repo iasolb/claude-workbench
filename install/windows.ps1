@@ -125,3 +125,18 @@ $confLines = @(
 $syncLabel = if ($Sync) { $Sync } else { "none" }
 $branchLabel = if ($machineBranch) { $machineBranch } else { "unknown" }
 Write-Host "Wrote workbench.conf (branch: $branchLabel, sync: $syncLabel)"
+
+# Ensure the TOON CLI is available globally for hooks that read/write .toon files.
+# Idempotent: npm install -g is a no-op when already installed at the current version.
+$toonCheck = npm list -g @toon-format/cli 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Installing @toon-format/cli globally..." -ForegroundColor Cyan
+    npm install -g @toon-format/cli 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Installed @toon-format/cli"
+    } else {
+        Write-Host "WARNING: failed to install @toon-format/cli. TOON hooks will not work." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "@toon-format/cli already installed"
+}

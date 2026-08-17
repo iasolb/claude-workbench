@@ -88,3 +88,16 @@ MACHINE_BRANCH=$machine_branch
 SYNC_BRANCHES=$sync_branches
 EOF
 echo "Wrote workbench.conf (branch: ${machine_branch:-unknown}, sync: ${sync_branches:-none})"
+
+# Ensure the TOON CLI is available globally for hooks that read/write .toon files.
+# Idempotent: npm install -g is a no-op when already installed at the current version.
+if ! command -v toon &>/dev/null; then
+    echo "Installing @toon-format/cli globally..."
+    if npm install -g @toon-format/cli 2>/dev/null; then
+        echo "Installed @toon-format/cli"
+    else
+        echo "WARNING: failed to install @toon-format/cli. TOON hooks will not work." >&2
+    fi
+else
+    echo "@toon-format/cli already installed"
+fi

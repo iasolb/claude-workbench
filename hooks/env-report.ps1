@@ -1,5 +1,5 @@
 # SessionStart hook, Windows side: write this environment's actual state to
-# state/<environment>.md so every other angle (a phone, a cloud session,
+# state/<environment>.toon so every other angle (a phone, a cloud session,
 # the other machine) can see what config this machine is really running.
 #
 # Exists because hooks exit 0 on failure by design, so a dead hook and a quiet
@@ -113,44 +113,39 @@ try {
     $urgentCount = @(Get-ChildItem (Join-Path $repo 'urgent') -Filter '*.md' | Where-Object { $_.Name -ne 'README.md' }).Count
 
     $now = Get-Date -Format 'yyyy-MM-dd HH:mm zzz'
+    $behindLines = ($behind | ForEach-Object { "  $_" } | Out-String).TrimEnd()
+    $localLinesStr = ($localLines | ForEach-Object { "  $_" } | Out-String).TrimEnd()
     $out = @"
 # $envName, state at last SessionStart
+# Written by hooks/env-report.ps1. Observed facts only.
+# Regenerated every session start.
 
-Written by ``hooks/env-report.ps1``. Observed facts only. Regenerated every
-session start, so a stale timestamp here means this machine has not started a
-session since then.
+when: $now
+session: $sid
+cwd: $cwd
+permission_mode: $pmodeLine
 
-- when: $now
-- session: $sid
-- cwd: $cwd
-- permission_mode: $pmodeLine
+git:
+  branch: $branch
+  HEAD: $head
+  dirty_files: $dirty
+  unpushed_commits: $unpushed
+$behindLines
 
-## Repo git, after the sync hook ran
+settings:
+  symlink: ~/.claude/settings.json -> $settingsState
+  fingerprint: $(Sha256 $userSettings)
+  default_mode: $defaultMode
+  allow_entries: $allowCount
+  rules_product_ignores: $deadRules
 
-- branch: $branch
-- HEAD: $head
-- dirty files: $dirty
-- unpushed commits: $unpushed
-$($behind | ForEach-Object { "- behind $_" } | Out-String)
-## Settings this machine actually loaded
+local_settings:
+$localLinesStr
 
-- ``~/.claude/settings.json``: $settingsState
-- content fingerprint: $(Sha256 $userSettings)
-- permissions.defaultMode: $defaultMode
-- allow entries: $allowCount
-- rules the product ignores (Write/NotebookEdit/MultiEdit/Glob paths, or Windows backslash paths): $deadRules
-
-### Local settings, which OUTRANK the shared file
-
-$($localLines | Out-String)
-## Instruments
-
-- timelog row for this session: $timelogHit
-- prompts/$envName.tsv: $promptState
-- urgent/ items waiting: $urgentCount
-- NOT verifiable from any file: queue-print, urgent-print, job-brief and
-  time-print only write to session context. Their firing can only be
-  confirmed by someone reading the session output.
+instruments:
+  timelog_row: $timelogHit
+  prompts_tsv: $promptState
+  urgent_items: $urgentCount
 "@
 
     $dir = Join-Path $repo 'state'
@@ -162,7 +157,7 @@ $($localLines | Out-String)
     # else, which reads like a broken instrument rather than two healthy
     # sessions racing. Retry briefly, then give up QUIETLY: a state file written
     # by the other session moments ago is just as current as ours.
-    $statePath = Join-Path $dir "$envName.md"
+    $statePath = Join-Path $dir "$envName.toon"
     $wrote = $false
     foreach ($attempt in 1..4) {
         try {
@@ -174,7 +169,7 @@ $($localLines | Out-String)
         }
     }
     if (-not $wrote) {
-        Write-Output "[env-report] state/$envName.md is locked by a concurrent session; skipped this write (not an error)."
+        Write-Output "[env-report] state/$envName.toon is locked by a concurrent session; skipped this write (not an error)."
         return
     }
 
@@ -182,8 +177,8 @@ $($localLines | Out-String)
     # INDEX, so this hook would file whatever a live session had staged under
     # a message that says "state:". That is not hypothetical; it has happened
     # here, sweeping six unrelated files into one automatic commit.
-    git -C $repo add "state/$envName.md" *> $null
-    git -C $repo commit --quiet -m "state: $envName session start (auto, env-report)" -- "state/$envName.md" *> $null
+    git -C $repo add "state/$envName.toon" *> $null
+    git -C $repo commit --quiet -m "state: $envName session start (auto, env-report)" -- "state/$envName.toon" *> $null
     if ($LASTEXITCODE -eq 0) { git -C $repo push --quiet *> $null }
 } catch { Write-Output "ENV-REPORT THREW: $($_.Exception.GetType().FullName): $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)" }
 

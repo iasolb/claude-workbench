@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook, macOS side (env-report.ps1 is the Windows counterpart,
 # same file format). Writes this environment's actual state to
-# state/<environment>.md so every other angle (a phone, a cloud session, the
+# state/<environment>.toon so every other angle (a phone, a cloud session, the
 # other machine) can see what config this machine is really running.
 #
 # Exists because hooks exit 0 on failure by design, so a dead hook and a quiet
@@ -128,51 +128,42 @@ fi
 URGENT_COUNT="$(find "$REPO/urgent" -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')"
 
 mkdir -p "$REPO/state" 2>/dev/null || exit 0
-cat > "$REPO/state/$ENVN.md" <<EOF
+cat > "$REPO/state/$ENVN.toon" <<EOF
 # $ENVN, state at last SessionStart
+# Written by hooks/env-report.sh. Observed facts only.
+# Regenerated every session start.
 
-Written by \`hooks/env-report.sh\`. Observed facts only. Regenerated every
-session start, so a stale timestamp here means this machine has not started a
-session since then.
+when: $(date '+%Y-%m-%d %H:%M %z')
+session: $SID
+cwd: $CWD
+permission_mode: $PMODE_LINE
 
-- when: $(date '+%Y-%m-%d %H:%M %z')
-- session: $SID
-- cwd: $CWD
-- permission_mode: $PMODE_LINE
-
-## Repo git, after the sync hook ran
-
-- branch: $BRANCH
-- HEAD: $HEAD_LINE
-- dirty files: $DIRTY
-- unpushed commits: $UNPUSHED
+git:
+  branch: $BRANCH
+  HEAD: $HEAD_LINE
+  dirty_files: $DIRTY
+  unpushed_commits: $UNPUSHED
 $BEHIND
-## Settings this machine actually loaded
+settings:
+  symlink: ~/.claude/settings.json -> $SETTINGS_STATE
+  fingerprint: $FINGERPRINT
+  default_mode: $DEFAULT_MODE
+  allow_entries: $ALLOW_COUNT
+  rules_product_ignores: $DEAD_RULES
 
-- \`~/.claude/settings.json\`: $SETTINGS_STATE
-- content fingerprint: $FINGERPRINT
-- permissions.defaultMode: $DEFAULT_MODE
-- allow entries: $ALLOW_COUNT
-- rules the product ignores (Write/NotebookEdit/MultiEdit/Glob paths, or Windows backslash paths): $DEAD_RULES
-
-### Local settings, which OUTRANK the shared file
-
+local_settings:
 $LOCAL_LINES
-## Instruments
-
-- timelog row for this session: $TIMELOG_HIT
-- prompts/$ENVN.tsv: $PROMPT_STATE
-- urgent/ items waiting: $URGENT_COUNT
-- NOT verifiable from any file: queue-print, urgent-print, job-brief and
-  time-print only write to session context. Their firing can only be
-  confirmed by someone reading the session output.
+instruments:
+  timelog_row: $TIMELOG_HIT
+  prompts_tsv: $PROMPT_STATE
+  urgent_items: $URGENT_COUNT
 EOF
 
 # PATHSPEC form, and it matters: a bare `git commit` commits the whole INDEX,
 # so this hook would file whatever a live session had staged under a message
 # that says "state:". That is not hypothetical; it has happened here, sweeping
 # six unrelated files into one automatic commit.
-git -C "$REPO" add "state/$ENVN.md" >/dev/null 2>&1
-git -C "$REPO" commit --quiet -m "state: $ENVN session start (auto, env-report)" -- "state/$ENVN.md" >/dev/null 2>&1 \
+git -C "$REPO" add "state/$ENVN.toon" >/dev/null 2>&1
+git -C "$REPO" commit --quiet -m "state: $ENVN session start (auto, env-report)" -- "state/$ENVN.toon" >/dev/null 2>&1 \
     && git -C "$REPO" push --quiet >/dev/null 2>&1
 exit 0
