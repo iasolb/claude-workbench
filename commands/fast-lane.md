@@ -85,9 +85,10 @@ the screenshot is how one bug survives three sessions.
 
 ## Wrap-up
 
-Write one line into `reports/personas/fast-lane/turns.md` (format in
-`reports/personas/README.md`): what changed and what the next session
-inherits. It is the quarterback's context, not the owner's reading, so keep it
-terse and put the detail in the rule file or the acceptance line it points at.
+Report, then STOP. **No turn log**: the per-persona `turns.md` files were
+deleted 2026-08-21 and nothing writes one. Only a genuine structural fault with
+more than one instance earns a pointer in `reports/personas/_LOG.md`, and the
+detail belongs in the rule file or the acceptance line it points at, never in
+the log. Spec: `reports/personas/README.md`.
 
 End the run with exactly one thing for the owner to do, per rules/shared/style.md.
