@@ -102,6 +102,17 @@
 #                  `>&2`, a null device target (`/dev/null`, `$null`, `NUL`),
 #                  and INPUT redirection, which allowed database-import forms
 #                  depend on.
+#              21. an INTERPRETER HANDED INLINE CODE (`-c`, `-Command`) at ANY
+#                  path spelling: `python`, `python.exe`, `C:\...\python.exe`.
+#                  Rules 4 and 9 denied this already but keyed on the BARE first
+#                  word, so the absolute spelling of the same form slipped past
+#                  the whole guard and prompted the owner, 2026-08-21. No entry
+#                  can fix it: the allowlisted interpreter forms are `-m <module>`
+#                  and a named script, and an inner `;` chain hides from rule 7
+#                  inside the quoted payload while the matcher still splits on
+#                  it. Flag looked for in the UNQUOTED remainder, so a `-c`
+#                  inside a payload or a grep pattern is text. `-e` is
+#                  deliberately NOT covered yet: no instance has cost a click.
 # It can NEVER approve, allow, or suppress a prompt. That pattern is
 # permanently forbidden: a hook that answers prompts is how an autonomous
 # setup gets its whole fleet flagged.
@@ -215,6 +226,27 @@ if "&" in amp:
     reasons.append("it uses a single & , which the parser reads as an operator rather than part of a command string, so no allowlist entry can ever match it (call the absolute path directly)")
 if bare in ("powershell", "pwsh", "cmd"):
     reasons.append("it wraps the real work in a " + bare + " -Command/-c string, which can never match an allowlist entry (the entries are written against the INNER command) and which hides any inner ; chain from this guard inside a quoted span. Run the inner command directly on the PowerShell tool, or use Glob to find files and Grep or Read to inspect them")
+# Rule 21. An interpreter handed INLINE CODE (`-c`, `-Command`), at ANY spelling.
+# Rules 4 and 9 already deny this form, but both key on `bare`, which is blanked
+# above for any token carrying a path separator. So the ABSOLUTE spelling of the
+# identical command slipped past every rule in this guard, and the owner was
+# prompted on exactly that, 2026-08-21:
+#   C:\...\Python313\python.exe -c "import json,os,subprocess; root=r(...); ..."
+# NOTE: no apostrophes in this comment on purpose. The whole guard body is a
+# single-quoted shell string, so one would close it early (guard-matrix.sh says
+# so by name when the guard stops parsing).
+# Two independent reasons no entry can EVER fix it, which is why this is a deny
+# and not an allowlist gap: the allowlisted interpreter forms are `-m <module>`
+# and a NAMED SCRIPT, so a `-c` payload prefix-matches none of them; and the `;`
+# chain lives INSIDE a quoted span, invisible to rule 7 while the permission
+# matcher still splits the string on it. The dialog proves the split, it listed
+# the fragments as separate commands.
+# Basename, so `python`, `python.exe` and `C:\...\python.exe` are one rule.
+# The flag is looked for in the UNQUOTED remainder, so a `-c` inside a payload
+# or a grep pattern is text and never denied.
+_inline_interp = re.sub(r"(?i)\.exe$", "", re.split(r"[/\\\\]", first)[-1]).lower() if first else ""
+if _inline_interp in ("python", "python3", "py", "node", "ruby", "perl", "bash", "sh", "zsh", "powershell", "pwsh", "cmd") and re.search(r"(?i)(^|\s)-(c|command)(\s|$)", unquoted):
+    reasons.append("it hands INLINE CODE to " + _inline_interp + " with -c/-Command, which matches no allowlist entry at any path spelling: the allowed interpreter forms are -m <module> and a named script. An inner ; chain also hides from the chain rule inside the quoted payload while the permission matcher still splits on it. A question about a file is the Read, Grep or Glob tool, none of which can ever prompt; if it is genuinely a script, put it in a file and invoke that file")
 # Rule 10. Checked against the WHOLE command, not `unquoted`: the entire point
 # is that it hides inside a quoted argument, where it still leaves a dollar the
 # matcher cannot resolve.

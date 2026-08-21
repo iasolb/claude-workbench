@@ -126,6 +126,21 @@ try {
     if (@("powershell", "pwsh", "cmd") -contains $bare) {
         $reasons += "it wraps the real work in a $bare -Command/-c string, which can never match an allowlist entry (the entries are written against the INNER command) and which hides any inner ; chain from this guard inside a quoted span. Run the inner command directly on the PowerShell tool, or use Glob to find files and Grep or Read to inspect them"
     }
+    # Rule 21. An interpreter handed INLINE CODE (-c, -Command), at ANY spelling.
+    # Rules 4 and 9 denied this already but keyed on $bare, which is blank above
+    # for any token carrying a path separator, so the ABSOLUTE spelling of the
+    # identical form slipped past the whole guard and prompted the owner on
+    # C:\...\Python313\python.exe -c "import json,os,subprocess; root=..."
+    # No entry can fix it: the allowlisted interpreter forms are -m <module> and
+    # a NAMED SCRIPT, and the inner ; chain hides from rule 7 inside the quoted
+    # payload while the permission matcher still splits the string on it.
+    # Basename, so python / python.exe / C:\...\python.exe are ONE rule. Flag is
+    # looked for in $unquoted, so a -c inside a payload or pattern is text.
+    $inlineInterp = ""
+    if ($first) { $inlineInterp = ((($first -split '[/\\]')[-1]) -replace '(?i)\.exe$', '').ToLower() }
+    if ((@("python", "python3", "py", "node", "ruby", "perl", "bash", "sh", "zsh", "powershell", "pwsh", "cmd") -contains $inlineInterp) -and ($unquoted -match '(?i)(^|\s)-(c|command)(\s|$)')) {
+        $reasons += "it hands INLINE CODE to $inlineInterp with -c/-Command, which matches no allowlist entry at any path spelling: the allowed interpreter forms are -m <module> and a named script. An inner ; chain also hides from the chain rule inside the quoted payload while the permission matcher still splits on it. A question about a file is the Read, Grep or Glob tool, none of which can ever prompt; if it is genuinely a script, put it in a file and invoke that file"
+    }
     # Rule 10. Checked against the WHOLE command, not $unquoted: the entire
     # point is that it hides inside a quoted argument, where it still leaves a
     # dollar the matcher cannot resolve.

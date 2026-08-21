@@ -225,6 +225,31 @@ run allow Bash 'git -C "C:\Users\you\project" log -1 --oneline'
 # PowerShell is untouched, where backslash is the CORRECT spelling.
 run allow PowerShell 'git -C C:\Users\you\project commit --dry-run -m "One word per concept" -- docs/naming-sheet.md tests/unit/test_naming_sheet.py'
 
+echo "--- rule 21: interpreter handed inline code, at ANY path spelling ---"
+# The form the owner was prompted on, 2026-08-21. Rules 4 and 9 keyed on the BARE
+# first word, so the ABSOLUTE spelling of the same command slipped the guard.
+run deny PowerShell 'C:\Users\you\AppData\Local\Programs\Python\Python313\python.exe -c "import json,os; root=r(C:\Users\you\workbench); print(root)"'
+run deny Bash '/c/Users/you/AppData/Local/Programs/Python/Python313/python.exe -c "import json; print(1)"'
+run deny Bash '/home/user/project/.venv/bin/python -c "print(1)"'
+run deny PowerShell 'C:/Users/you/workbench/.venv/Scripts/python.exe -c "print(1)"'
+run deny Bash 'sh -c "ls /home/user"'
+run deny Bash 'node -c "console.log(1)"'
+# `-e` is deliberately NOT covered: no instance has cost a click yet.
+run allow Bash 'node -e "console.log(1)"'
+echo "--- ...and the ALLOWED interpreter forms must survive it ---"
+run allow PowerShell 'C:\Users\you\AppData\Local\Programs\Python\Python313\python.exe C:\Users\you\workbench\tools\lint.py'
+run allow Bash '/c/Users/you/AppData/Local/Programs/Python/Python313/python.exe /c/Users/you/workbench/tools/lint.py'
+run allow Bash '/c/Users/you/AppData/Local/Programs/Python/Python313/python.exe -m json.tool /c/Users/you/workbench/settings.json'
+run allow Bash '/home/user/project/.venv/bin/python -m pytest /home/user/project/tests'
+run allow Bash 'bash -n /c/Users/you/workbench/hooks/env-report.sh'
+# The flag is looked for in the UNQUOTED remainder, so a -c belonging to a
+# NON-interpreter, or sitting inside a payload, must never fire this rule.
+run allow Bash 'grep -c origin /home/user/workbench/hooks/urgent-print.sh'
+run allow PowerShell 'git -C C:/Users/you/workbench log -1 --format="%h -c"'
+# An allowed database-import form that legitimately contains `sh -c`: the rule
+# keys on the FIRST word, which is docker, so it must stay allowed.
+run allow Bash 'docker exec -i appdb sh -c "mysql -u root appdb" < /c/Users/you/project/migrations/001.sql'
+
 echo "--- allowed forms stay allowed (no new false positives) ---"
 run allow Bash 'sed -n "1,20p" /home/user/notes.md'
 run allow Bash 'grep -i origin /home/user/workbench/hooks/urgent-print.sh'
