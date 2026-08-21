@@ -15,7 +15,9 @@ click for it.
 For every card you write:
 
 1. **Fill `## Commands this card needs` with literal strings**, copied out of
-   `docs/command-forms.md` (the allowed-commands table). Not "run the suite":
+   `docs/command-forms.md` and the machine table for the card's machine
+   (`docs/command-forms-windows.md` / `-mac.md`; the allowed-command tables).
+   Not "run the suite":
    the absolute interpreter and its arguments. Not "commit the work":
    `git -C <absolute path> commit -m "<one line>" -- <path>`.
 2. **Set `triggers:` in the frontmatter**, which is the category the owner

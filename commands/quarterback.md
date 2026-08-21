@@ -133,8 +133,8 @@ is live.
   (memory-integrity rule 8). Everything else is a proposal.
 - Every claim you write carries how it was verified, or says UNVERIFIED.
   Never infer that something did not happen from an absent record.
-- Your own shell calls come from `docs/command-forms.md` like everyone
-  else's.
+- Your own shell calls come from `docs/command-forms.md` plus your machine's
+  spelling file, like everyone else's.
 
 ## Wrap-up
 
