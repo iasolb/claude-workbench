@@ -250,6 +250,16 @@ run allow PowerShell 'git -C C:/Users/you/workbench log -1 --format="%h -c"'
 # keys on the FIRST word, which is docker, so it must stay allowed.
 run allow Bash 'docker exec -i appdb sh -c "mysql -u root appdb" < /c/Users/you/project/migrations/001.sql'
 
+echo "--- rule 22: Select-String piped, on PowerShell (the Grep tool is the answer) ---"
+run deny PowerShell 'Select-String -Path "C:/Users/you/workbench/tools/lint.py" -Pattern "replace" | ForEach-Object { "$($_.LineNumber)" }'
+run deny PowerShell 'Select-String -Path C:/Users/you/workbench/settings.json -Pattern Edit | Select-Object -First 5'
+echo "--- ...but a bare Select-String, and the allowlisted Get-ChildItem pipe, must survive ---"
+run allow PowerShell 'Select-String -Path "C:/Users/you/workbench/tools/lint.py" -Pattern "replace"'
+run allow PowerShell 'Get-ChildItem C:/Users/you/workbench/rules -File | Select-Object Name,Length'
+# Bash-only rule 12 must not start firing on the word select-string, and the
+# PowerShell rule must not leak onto the Bash tool.
+run allow Bash 'grep -n "select-string" /home/user/workbench/hooks/shell-form-guard.sh'
+
 echo "--- allowed forms stay allowed (no new false positives) ---"
 run allow Bash 'sed -n "1,20p" /home/user/notes.md'
 run allow Bash 'grep -i origin /home/user/workbench/hooks/urgent-print.sh'

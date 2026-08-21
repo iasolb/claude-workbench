@@ -203,6 +203,21 @@ try {
         $reasons += "it pipes $innerBare into another command to answer a question about file CONTENTS. Every stage may be free on its own and the pipeline still prompts, because the docs treat sort and sed as write-capable (sort -o writes a file) so an unquoted glob anywhere in the pipe forces a click. Use the Grep tool (search inside files), Read (one file) or Glob (find files): none of them can ever prompt"
       }
     }
+    # Rule 22. Select-String PIPED into anything, on the PowerShell tool.
+    # Searching inside files is the Grep tool: same engine, cannot prompt,
+    # structured matches instead of text to reformat. The owner was prompted
+    # 2026-08-21 on
+    #   Select-String -Path "<file>" -Pattern "replace" | ForEach-Object { ... }
+    # where Select-String IS allowlisted and ForEach-Object is not, and the
+    # matcher requires every stage of a pipe to match independently. NO ENTRY is
+    # wanted for the destination: a ForEach-Object script block is improvised
+    # code, so an entry matching it would permit invoking any script text (rule
+    # 16 reasoning). NARROW on purpose: only Select-String as the SOURCE of a
+    # pipe. A bare Select-String is untouched, and so is
+    # Get-ChildItem | Select-Object, which is allowlisted and verified silent.
+    if ($toolName -eq "PowerShell" -and $unquoted -match '(?i)(^|\s)select-string\b[^|]*\|') {
+        $reasons += "it pipes Select-String into another command to answer a question about file CONTENTS. Select-String is allowlisted but the destination stage is not, and the matcher requires every stage of a pipeline to match on its own, so the pipe prompts. No entry is wanted for a ForEach-Object script block either: that is improvised code, and an entry matching it would permit invoking any script text. Use the Grep tool, which is the same search engine, takes -n for line numbers plus glob/type filters and -A/-B/-C context, and can never prompt"
+    }
     if ($toolName -eq "PowerShell" -and @("curl", "wget") -contains $bare) {
         $reasons += "it runs $bare on the PowerShell tool, where $bare is an ALIAS for Invoke-WebRequest and rejects curl flags outright, and where no allowlist entry covers it. Run the identical command on the Bash tool instead, which Bash(curl:*) already allows"
     }

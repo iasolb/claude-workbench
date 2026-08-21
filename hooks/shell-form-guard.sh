@@ -282,6 +282,23 @@ if (re.search(r"(^|\s)git(\s|$)", unquoted) and re.search(r"(^|\s)commit(\s|$)",
         and "--no-edit" not in unquoted):
     reasons.append("it runs git commit with no \" -- <path>\" pathspec separator. Plain git commit commits the whole INDEX, including files another session staged, and several sessions share this working tree by design. That is how a permissions diff once shipped inside an unrelated commit. Use git -C <repo> commit -m \"<one line>\" -- <path> <path> (rules/claude/git-github.md)")
 
+# Rule 22. `Select-String` PIPED into anything, on the PowerShell tool. Searching
+# inside files is the Grep tool, which is the same engine, cannot prompt, and
+# returns structured matches instead of text to reformat. The owner was prompted
+# on 2026-08-21 on
+#   Select-String -Path "<file>" -Pattern "replace" | ForEach-Object { ... }
+# where `Select-String` IS allowlisted and `ForEach-Object` is not, and the
+# matcher requires every stage of a pipe to match independently. NO ENTRY IS
+# WANTED for the destination: a `ForEach-Object { ... }` script block is
+# improvised code, so the entry that matched it would permit building and
+# invoking any script text, which is rule 16 reasoning.
+# Deliberately NARROW: only `Select-String` as the SOURCE of a pipe. A bare
+# `Select-String` is untouched (it is allowlisted and useful), and so is
+# `Get-ChildItem | Select-Object`, which is allowlisted and verified silent.
+# That is why this does NOT reuse rule 12, which stays Bash-only.
+if tool_name == "PowerShell" and re.search(r"(?i)(^|\s)select-string\b[^|]*\|", unquoted):
+    reasons.append("it pipes Select-String into another command to answer a question about file CONTENTS. Select-String is allowlisted but the destination stage is not, and the matcher requires every stage of a pipeline to match on its own, so the pipe prompts. No entry is wanted for a ForEach-Object script block either: that is improvised code, and an entry matching it would permit invoking any script text. Use the Grep tool, which is the same search engine, takes -n for line numbers plus glob/type filters and -A/-B/-C context, and can never prompt")
+
 # Rule 14. A drive letter followed by DOUBLED separators. Whole command: the
 # doubling sits inside a path argument. Anchored on the drive letter on purpose,
 # so a UNC path (no drive letter) and a quoted regex are not false positives.
