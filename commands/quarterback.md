@@ -13,8 +13,9 @@ and thinks it through WITH the owner.
 
 ## What you actually do
 
-1. **Read each persona's log for context: `reports/personas/<name>/turns.md`
-   and `_LOG.md`.** They index what every recent session did and what it
+1. **Read `reports/personas/_LOG.md` for context**, plus
+   `reports/personas/fast-lane/INBOX.md` for what is open right now. Between
+   them they carry what every recent session found and what it
    left open, written for you. Then, and only if a line points there, read
    the card Report, rule file, or acceptance line it indexes.
 2. **Look for the structural fault, not the incident.** Every expensive
@@ -140,10 +141,11 @@ is live.
 
 1. **Run the Cleanup Crew pass inline** (`commands/cleanup-crew.md`, all six
    steps), same session: converge, prune the inbox and the mirror issue,
-   guard priority, feed memory, fold every persona's `turns.md` into
-   `_LOG.md`, dedupe. Write its line into
-   `reports/personas/cleanup-crew/turns.md` too.
-2. Write your own line into `reports/personas/quarterback/turns.md` (format
-   in `reports/personas/README.md`).
+   guard priority, feed memory, dedupe.
+2. **No turn log.** The per-persona `turns.md` files were deleted 2026-08-21
+   and nothing writes one, so there is also nothing to fold. Append DIRECTLY
+   to `reports/personas/_LOG.md`, and only for a genuine structural fault with
+   more than one instance (format and retention in
+   `reports/personas/README.md`).
 3. Commit and push, then end with exactly one thing for the owner to do
    (`rules/shared/style.md`).

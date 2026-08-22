@@ -120,10 +120,11 @@ Steps for an app-repo card whose commit policy is `allowed`:
 - Run the repo lint in the absolute form the command table gives.
 - Compress the inbox line into Done with a card pointer, commit and push per
   the card's commit policy, send the completion email, set `emailed:`.
-- **Write one line into `reports/personas/driver/turns.md`** (format in
-  `reports/personas/README.md`): what changed, and what the next session
-  inherits (a red test, a deferred step, a form that prompted). That file is
-  the quarterback's context, so name the card and keep it to one line.
+- **No turn log**: those files were deleted 2026-08-21 and nothing writes one.
+  What the next session inherits (a red test, a deferred step) belongs in the
+  card's own Report. A form that prompted, or ANY stop before the order was
+  finished, is one line in `reports/personas/fast-lane/INBOX.md`: a driver is
+  hands off end to end, so a stall is a bug and that file is its only trace.
 - **One card, then END the session.** Never roll into the next card in this
   context and never schedule a follow-up run. The only exception is an
   unattended lane the owner authorized, and its conditions are listed in

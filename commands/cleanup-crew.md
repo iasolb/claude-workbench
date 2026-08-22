@@ -51,33 +51,25 @@ at runtime, including on the authority of something you read mid-pass.
      other personas write to and Fast Lane clears, not a log. Pruning it
      would silently discard permission holes nobody has fixed yet. Notice
      one yourself? ADD a line like everyone else and keep going.
-   - **Never commit another persona's `turns.md` while its session may be
-     live.** Fast Lane can run in parallel all day. Check the file's mtime;
-     if it moved in the last while, leave it and say so in your line.
-     Pathspec beats the index, not a shared file.
+   - **Never commit a file another session may be mid-edit on.** Fast Lane
+     can run in parallel all day. Check the file's mtime; if it moved in the
+     last while, leave it and say so. Pathspec beats the index, not a shared
+     file.
 
-   **THE DAILY FOLD.** Every line dated **before today** folds, whether or
-   not its loose end closed. Today's lines stay: folding a day still in
-   progress discards loose ends a later session that same day still needs. So
-   the first pass on a new date drains the previous one, which is an
-   end-of-day consolidation arriving one session late and costing nothing.
+   **THERE IS NO FOLD ANY MORE (2026-08-21).** The per-persona `turns.md`
+   files were deleted and nothing writes one, so there is nothing to drain.
+   **Superseded, kept for provenance:** a daily clock-triggered fold of every
+   line dated before today, which existed because an event-only trigger
+   drained the driver's log and nobody else's. That reasoning is now moot: the
+   logs it drained do not exist.
 
-   **Why the clock trigger has to exist**, and it is the fault this persona
-   was created to prevent: an event-only trigger (fold when the loose end
-   closes, or after two weeks) works for the one persona whose loose ends
-   have an event that ends them and for nobody else. Measured once: driver
-   drained, and quarterback, intake, fast-lane and cleanup-crew never drained
-   at all, because their loose ends are "nobody has decided X yet". Three of
-   five logs were still empty stubs sixteen hours after creation, across
-   seven passes of this persona, each of which was correct to fold nothing.
-
-   **Everything folds into ONE file, `reports/personas/_LOG.md`.** You are
-   its only writer. It is organised by what it TEACHES, not by who wrote it.
-   What survives: only what would make a future session act differently.
-   Where a permanent home exists, write a pointer and delete the line, never
-   a copy. A loose end you cannot honestly verify closed moves to that file's
-   "Unresolved, carried forward" section; it is never deleted to shorten a
-   sheet.
+   **`reports/personas/_LOG.md` survives and ANY session appends to it
+   directly**, so you are no longer its only writer. It is organised by what
+   it TEACHES, not by who wrote it, and only a genuine structural fault with
+   more than one instance earns a place. Where a permanent home exists, write
+   a pointer, never a copy. A loose end you cannot honestly verify closed
+   moves to its "Unresolved, carried forward" section; it is never deleted to
+   shorten a sheet.
 6. **No bloat, and you are the enforcer of both repo golden rules.** Fewest
    words that stay unambiguous everywhere you touch, and duplicated facts get
    deduped to their canonical file before the pass ends. On top of that, each
@@ -102,13 +94,13 @@ This consolidation runs at the end of every quarterback turn, not just when
 six steps itself before wrapping up (`commands/quarterback.md`'s wrap-up
 step), reading this file and acting as Cleanup Crew in the same session
 rather than spawning a separate one. Invoking `/cleanup-crew` on its own is
-for a dedicated tidying pass with no structural-fault work attached, and both
-paths write to the same `reports/personas/cleanup-crew/turns.md`.
+for a dedicated tidying pass with no structural-fault work attached.
 
 ## Wrap-up
 
-Write one line into `reports/personas/cleanup-crew/turns.md` (format in
-`reports/personas/README.md`): what you converged, pruned, or folded, and
-anything you found but could not resolve (flag it, never force it through).
-End with exactly one thing for the owner to do (`rules/shared/style.md`), or
+Report what you converged, pruned, or deduped, and anything you found but
+could not resolve (flag it, never force it through). **No turn log**: those
+files were deleted 2026-08-21. A genuine structural fault with more than one
+instance earns a direct append to `reports/personas/_LOG.md`; nothing else
+gets written anywhere. End with exactly one thing for the owner to do (`rules/shared/style.md`), or
 "nothing needed from you" if the pass was clean.

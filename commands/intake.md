@@ -44,8 +44,9 @@ commands already known, not discovered mid-implementation.
 
 ## Wrap-up
 
-Write one line into `reports/personas/intake/turns.md` (format in
-`reports/personas/README.md`): which cards you cut, their `triggers:`
-category, and any permission gap you raised or could not close. That file is
-the quarterback's context, not the owner's reading; the card itself stays the
-record.
+Report, then STOP. **No turn log**: the per-persona `turns.md` files were
+deleted 2026-08-21 and nothing writes one. The card itself is the record of
+what you cut. A permission gap you raised or could not close goes in
+`reports/personas/fast-lane/INBOX.md` as one line, and only a genuine
+structural fault with more than one instance earns a pointer in
+`reports/personas/_LOG.md`.
