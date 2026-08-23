@@ -17,6 +17,7 @@ Five subagents ship, all read-only or approval-gated by design:
 | `fast-lane` | Fixes Claude process bugs and permission-list gaps. It is the only agent allowed to edit the allow/deny list. |
 | `cleanup-crew` | Keeps the queue, memory, reports, rules, and mirrored workload issue consistent without touching the live Fast Lane inbox. |
 | `pathfinder` | Turns actionable standing priorities into at most one small order per goal and records blockers without inventing work. |
+| `judge` | Reads a landed diff against its order's intent and reports whether the evidence proves the claim, read-only, advisory, never merges. |
 
 Before first use, open `web-qa-crawler.md` and add the owner's deployed
 staging hosts to the authorized-targets gate, and open `qa-cleanup-crew.md`
