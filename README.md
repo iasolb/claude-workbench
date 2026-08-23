@@ -3,7 +3,8 @@
 A template for versioning your global Claude Code configuration in git:
 instructions, rules, settings, hooks, and Claude's persistent memory, with
 optional cross-machine sync so Claude remembers the same things everywhere
-you work.
+you work. For anyone who wants their Claude Code setup tracked, portable,
+and reproducible.
 
 ## What you get
 
@@ -22,10 +23,7 @@ you work.
   commits) whatever changed, and a Notification hook raises a desktop
   notification when Claude is waiting on you.
 - **An optional priority queue**: a `queue/` directory holding your standing
-  priorities and the in-flight state of whatever's being worked. A
-  SessionStart hook prints it into context so fresh sessions start on the
-  right work without prompting, and a Stop hook nudges Claude to write the
-  arc state back before long sessions end.
+  priorities and the in-flight state of whatever's being worked.
 
 Everything works on macOS, Linux, and Windows. Each hook ships in both `.sh`
 and `.ps1` form; `settings.json` wires up both and each script no-ops on the
@@ -42,8 +40,9 @@ other platform.
    - macOS/Linux: `install/mac.sh`
    - Windows (needs Developer Mode or an elevated prompt, and run it from
      the directory you usually launch `claude` from): `install\windows.ps1`
-4. Edit `CLAUDE.md`, read through `rules/` and keep the ones you want, and add
-   a matching `@rules/<topic>.md` import line to `CLAUDE.md` for each survivor.
+4. Edit `CLAUDE.md`, read through `rules/` and keep the ones you want, and
+   add a matching `@rules/<topic>.md` import line to `CLAUDE.md` for each
+   survivor.
 
 The installer symlinks each tracked item into `~/.claude` (existing files
 are backed up with a `.bak` suffix, never silently overwritten), links your
@@ -57,7 +56,7 @@ the repo, just re-run the installer.
 - `settings.json`: permissions and hooks
 - `rules/`: standing rules, one file per topic, imported by `CLAUDE.md`;
   split into `shared/` (every tool reads them) and `claude/` (Claude Code
-  only), see below
+  only)
 - `commands/`: custom slash commands, including the five personas and five
   lightweight commands described below
 - `agents/`: custom subagents (empty to start)
@@ -69,6 +68,16 @@ the repo, just re-run the installer.
 - `examples/queue/`: starter queue files (see "The priority queue" below)
 - `install/`: the per-platform installers
 - `docs/`: troubleshooting
+
+## Start here
+
+Clone the template, run the installer for your platform, then open
+`CLAUDE.md` and make it yours. The deep sections below cover the priority
+queue, the rules, the personas, the QA/review tools, and multi-machine sync.
+
+---
+
+# Details
 
 ## The priority queue (optional)
 
@@ -89,9 +98,7 @@ re-explaining where things stand.
   updated.
 
 Opt in by copying `examples/queue/` to `queue/` in the repo root and
-committing; the hooks stay silent until that directory exists. Claude
-maintains the files from there: it annotates and removes items as work
-completes and keeps the arc current, while the ordering stays yours.
+committing; the hooks stay silent until that directory exists.
 
 ## The rules
 
@@ -103,9 +110,9 @@ decisions, and planning mode. `rules/README.md` has a one-line summary of each
 and the split into `shared/` and `claude/`.
 
 They are **opinionated on purpose**: a rule file that hedges gives a session
-nothing to act on. Read them as a starting position, keep what fits, edit what
-does not, and delete the rest. Only files you import from `CLAUDE.md` are
-loaded, so an unimported rule costs nothing but disk.
+nothing to act on. Read them as a starting position, keep what fits, edit
+what does not, and delete the rest. Only files you import from `CLAUDE.md`
+are loaded, so an unimported rule costs nothing but disk.
 
 Every one of them is a rule that exists because something went wrong without
 it. The incident is not in the file, but the failure SHAPE it prevents is,
@@ -115,9 +122,9 @@ because that is the part that transfers.
 
 `commands/` ships a working division of labour rather than a description of
 one. **A session is exactly ONE persona**, chosen when you start it. That is
-the whole point: each one has a different reading list, a different scope, and
-a different idea of when it is finished, and a session that tries to be two of
-them does neither job well.
+the whole point: each one has a different reading list, a different scope,
+and a different idea of when it is finished, and a session that tries to be
+two of them does neither job well.
 
 | Command | What it is for |
 |---|---|
@@ -132,10 +139,11 @@ have no turn report and no wrap-up ritual: `/debug`, `/explain`, `/find`
 (your own docs), `/research` (the open web), and `/scaffold` (structure and
 stubs only, never implementations).
 
-The personas reference `rules/claude/jobs.md`, `rules/claude/permission-loops.md`,
-`rules/shared/style.md` and `docs/command-forms.md`. Ship those alongside them, or
-edit the references out: a persona that points at a rule file you do not have
-is a pointer with nothing to point at.
+The personas reference `rules/claude/jobs.md`,
+`rules/claude/permission-loops.md`, `rules/shared/style.md` and
+`docs/command-forms.md`. Ship those alongside them, or edit the references
+out: a persona that points at a rule file you do not have is a pointer with
+nothing to point at.
 
 ## The QA and review tools (optional)
 
@@ -188,10 +196,10 @@ clone, in whichever spellings match how you run Claude Code:
 ```
 
 The `deny` block that ships in `settings.json` blocks remote-mutating `gh`
-commands (PR/issue/release creation) regardless, and `rules/claude/git-github.md` is
-the matching rule, with a table to fill in for your own repos. Whether to grant
-this at all is a judgment call; everything works with you running `git commit`
-and `git push` yourself.
+commands (PR/issue/release creation) regardless, and
+`rules/claude/git-github.md` is the matching rule, with a table to fill in
+for your own repos. Whether to grant this at all is a judgment call;
+everything works with you running `git commit` and `git push` yourself.
 
 ## What stays out of the repo
 
