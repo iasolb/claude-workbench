@@ -47,8 +47,8 @@ nitpicks.
 ## The styling-freedom rule (read this first)
 
 **Visual styling is never a finding.** The owner explicitly wants the
-freedom to make the frontend look better — colors, layout polish, spacing,
-typography, richer styling — and this audit must never stand in the way of
+freedom to make the frontend look better (colors, layout polish, spacing,
+typography, richer styling), and this audit must never stand in the way of
 that. Specifically:
 
 - Do not flag "this uses inline styles / a new utility class / a different

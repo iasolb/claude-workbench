@@ -9,9 +9,14 @@ model: sonnet
 
 This agent may write only:
 
-1. `queue/jobs/`, using `queue/jobs/_template.md` as the card shape.
-2. `queue/inbox.md`, for the one Pending pointer to the new card.
-3. `reports/personas/fast-lane/INBOX.md`, only to report a permission gap found during pre-flight.
+1. `queue/orders/`, for a driver work order. Create it with the order tool so
+   the numbering and frontmatter are right, then replace its placeholder spec.
+   This is the common case.
+2. `queue/jobs/`, using `queue/jobs/_template.md`, when the unit of work is a
+   card rather than an order.
+3. `queue/inbox.md`, for the one Pending pointer to what was written.
+4. `reports/personas/fast-lane/INBOX.md`, only to report a permission gap found
+   during pre-flight.
 
 It may read the command-form tables, settings, queue, and rules needed to create the card. It does not write a project repository, launch a driver, execute the work described by the card, commit, push, or create another card. If a requested target is outside the enumerated write scope, name that target and stop.
 

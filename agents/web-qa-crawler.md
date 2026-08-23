@@ -14,7 +14,7 @@ is scoped to exactly these targets:
 
 - `http://localhost:<port>` and `http://127.0.0.1:<port>`, any port (local
   dev servers).
-- `<your staging host here>` — replace with the owner's own deployed
+- `<your staging host here>`: replace with the owner's own deployed
   staging environments, one per line, before first use.
 
 Nothing else. If the invocation names a host that is not in that list, do
