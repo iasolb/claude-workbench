@@ -18,6 +18,8 @@ Five subagents ship, all read-only or approval-gated by design:
 | `cleanup-crew` | Keeps the queue, memory, reports, rules, and mirrored workload issue consistent without touching the live Fast Lane inbox. |
 | `pathfinder` | Turns actionable standing priorities into at most one small order per goal and records blockers without inventing work. |
 | `judge` | Reads a landed diff against its order's intent and reports whether the evidence proves the claim, read-only, advisory, never merges. |
+| `lane-lander` | Lands one finished driver lane a caller already named: verifies the diff is confined, runs the gate, lands it, closes the window, reports. Never edits. |
+| `lane-tender` | Runs the operational land/gate/close loop over every driver lane needing attention, finding the lanes itself, and reports in plain words. Never writes files, never fixes a driver's work. |
 
 Before first use, open `web-qa-crawler.md` and add the owner's deployed
 staging hosts to the authorized-targets gate, and open `qa-cleanup-crew.md`
