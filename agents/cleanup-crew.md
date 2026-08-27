@@ -2,7 +2,7 @@
 name: cleanup-crew
 description: Use for a dedicated consistency pass over queue, memory, reports, rules, and the mirrored workload issue. Distinct from fast-lane because it never edits the live permission inbox, and from pathfinder because it tidies rather than advances priorities.
 tools: Read, Grep, Glob, Write, Edit, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated

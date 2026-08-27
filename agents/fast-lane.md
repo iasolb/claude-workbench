@@ -2,7 +2,7 @@
 name: fast-lane
 description: Use when a Claude process bug or permission gap must be fixed and guardrailed while other sessions are live. Distinct from intake and cleanup because Fast Lane alone edits the allow/deny permission list.
 tools: Read, Grep, Glob, Edit, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated

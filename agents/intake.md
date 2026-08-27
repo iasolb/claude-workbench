@@ -2,7 +2,7 @@
 name: intake
 description: Use when an approved objective needs one executable job order. Distinct from pathfinder, which adapts standing priorities, and from every implementation agent, because Intake writes the card and stops without launching work.
 tools: Read, Grep, Glob, Write, Edit, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated

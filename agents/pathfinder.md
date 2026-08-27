@@ -2,7 +2,7 @@
 name: pathfinder
 description: Use for a momentum pass over standing priorities to identify cleared blockers and cut the smallest executable next order. Distinct from cleanup-crew because Pathfinder advances actionable goals and may create orders, while leaving parked goals alone.
 tools: Read, Grep, Glob, Write, Edit, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated
