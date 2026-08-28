@@ -1,5 +1,11 @@
 # claude-workbench
 
+**This is a published snapshot, not a live mirror.** The maintainer's actual
+`hooks/`, `agents/`, and `commands/` live in a private repo and change daily;
+this repo gets refreshed from that source periodically, generalized (personal
+paths, names, and facts stripped). Use it as a starting template for your own
+setup, not as a way to see what the maintainer is running right now.
+
 A template for versioning your global Claude Code configuration in git:
 instructions, rules, settings, hooks, and Claude's persistent memory, with
 optional cross-machine sync so Claude remembers the same things everywhere
