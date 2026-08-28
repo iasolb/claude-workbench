@@ -2,7 +2,7 @@
 name: lane-tender
 description: Use to run the operational land/gate/close loop over every driver lane that needs attention, finding the lanes itself instead of being handed one, and invoked with no argument beyond 'run the loop': it digests all lane state, lands or reports each one, and closes dead windows. Distinct from lane-lander, which acts on exactly one lane a caller already named, and from judge, which reviews a landed diff's quality; it never writes files, never fixes a driver's work, and never touches the permission list.
 tools: Read, Grep, Glob, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated

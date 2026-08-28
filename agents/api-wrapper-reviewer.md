@@ -3,6 +3,11 @@ name: api-wrapper-reviewer
 description: Use when reviewing a new or modified API-wrapper/loader project (a human-readable naming layer over a raw external API) for compliance with the established house conventions. Read-only, reports findings, does not edit code.
 tools: Read, Grep, Glob
 model: sonnet
+# reason (rules/shared/cost.md), MEASURED not guessed: haiku vs sonnet on the
+# same real target caught 1 of 5 substantive findings sonnet caught, missing
+# everything that needed cross-repo comparison or recognizing code that looks
+# like it does something but doesn't (no hallucination, just real misses).
+# reports/2026-08-28-haiku-vs-sonnet-api-wrapper-review.md
 ---
 
 You review Python code that wraps an external API (government data or

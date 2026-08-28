@@ -139,13 +139,21 @@ is live.
 
 ## Wrap-up
 
-1. **Run the Cleanup Crew pass inline** (`commands/cleanup-crew.md`, all six
-   steps), same session: converge, prune the inbox and the mirror issue,
-   guard priority, feed memory, dedupe.
-2. **No turn log.** The per-persona `turns.md` files were deleted 2026-08-21
+1. **Run the mechanical half with the tool, not by hand:**
+   `python tools/close-turn.py --commit "<subject>"` (converge, conflict
+   check, queue drift, lint, branch check, commit, push, ledger row, all in
+   about a second). **Found 2026-08-28: this had not been run in six days
+   despite being marked PORTED in `docs/work-routing.md`'s register, because
+   nothing forced a session to call it instead of reconstructing its steps
+   by hand.** Doing it by hand is not equivalent: it also silently starves
+   the model ledger, which only gets a row when this script runs. Run it,
+   read what it reports, do not re-derive its checks yourself.
+2. **Run the Cleanup Crew pass inline** for the judgment half the script
+   cannot do (`commands/cleanup-crew.md`): prune the inbox and mirror issue
+   narrative, guard priority, feed memory, dedupe.
+3. **No turn log.** The per-persona `turns.md` files were deleted 2026-08-21
    and nothing writes one, so there is also nothing to fold. Append DIRECTLY
    to `reports/personas/_LOG.md`, and only for a genuine structural fault with
    more than one instance (format and retention in
    `reports/personas/README.md`).
-3. Commit and push, then end with exactly one thing for the owner to do
-   (`rules/shared/style.md`).
+4. End with exactly one thing for the owner to do (`rules/shared/style.md`).

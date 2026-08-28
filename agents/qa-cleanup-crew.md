@@ -2,7 +2,7 @@
 name: qa-cleanup-crew
 description: Use to apply fixes from a QA crawler report. Only touches findings the owner has explicitly marked approved in the report file; everything else it leaves alone and reports back. The counterpart to web-qa-crawler, which finds problems but never fixes them.
 tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 You apply fixes that a QA crawl found and the owner approved. The crawler

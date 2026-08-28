@@ -363,6 +363,23 @@ if tool_name == "Bash" and re.search(r"[A-Za-z]:\\", unquoted):
 if wsl_wrapped and inner_bare == "git" and re.search(r"/mnt/[A-Za-z]/", command):
     reasons.append("it runs git INSIDE wsl against a /mnt/ path, which is the Windows filesystem seen through the WSL bridge. That bridge can serve STALE bytes: git run this way has reported a CLEAN working tree over files that were in fact modified, so the answer looks authoritative and is wrong. It also matches no git entry, since every one of them is written against a Windows or POSIX-on-Windows path. Run git on the WINDOWS side with the forms in docs/command-forms.md: git -C C:/Users/... on PowerShell, or git -C /c/Users/... on Bash. Reserve wsl git for repos that genuinely LIVE in the Linux filesystem")
 
+# Rule 23. `intake` may never commit or push, full stop. Its own scope
+# (agents/intake.md) already said so in prose ("does not... commit, push, or
+# create another card"), and on 2026-08-28 a haiku run of it committed and
+# pushed a self-authored card to the shared branch anyway, under an ambiguous
+# "do the real job" framing, in the SAME turn it was told twice not to
+# (reports/personas/_LOG.md, "A HAIKU SUBAGENT COMMITTED AND PUSHED..."). A
+# written "does not" is not a boundary a model reliably holds; this is the
+# mechanical one. Keyed on agent_type from the PreToolUse payload (present
+# only inside a subagent call, doc-verified 2026-08-28:
+# https://code.claude.com/docs/en/hooks.md), so this can never fire for the
+# main thread or any other subagent, including ones that legitimately commit
+# (cleanup-crew, fast-lane).
+agent_type = payload.get("agent_type") or ""
+if agent_type == "intake" and re.search(r"(^|\s)git(\s|$)|(^|\s)git\s", unquoted) and re.search(r"(^|\s)(commit|push)(\s|$)", unquoted):
+    _verb = "push" if re.search(r"\bpush\b", unquoted) else "commit"
+    reasons.append("the intake agent tried to " + _verb + ", which its own scope (agents/intake.md) forbids outright, it says plainly: does not commit, push, or create another card. This is not a permission gap to route around: write the order file and stop, the quarterback reviews and launches. If this order genuinely needs to ship, report that back instead of committing it yourself")
+
 if not reasons:
     sys.exit(0)
 

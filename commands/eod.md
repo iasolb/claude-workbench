@@ -30,9 +30,10 @@ than about two weeks gets deleted, git is the archive.
 
 ### 3. Refresh the workload issue
 
-Refresh https://github.com/iasolb/ai-memory-bank/issues/1 to match the
-current queue: same order, current work only, no ideas, no done history,
-refresh date bumped. This is the permanent home, the number stops moving.
+Refresh the ONE pinned workload issue in your memory-bank repository to match
+the current queue: same order, current work only, no ideas, no done history,
+refresh date bumped. Pick one issue number and keep it forever, so the link
+is bookmarkable and the number stops moving.
 
 ### 4. Priority guard
 

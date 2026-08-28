@@ -2,7 +2,7 @@
 name: lane-lander
 description: Use to land one finished driver lane: verify the diff is confined to the files its order named, run the gate, land it, close the window, and report. Distinct from intake and pathfinder because it creates no work, and from cleanup-crew because it acts on exactly one lane and never tidies the repo. It reports a recommendation and never overrides a red gate.
 tools: Read, Grep, Glob, Bash, PowerShell
-model: sonnet
+model: haiku
 ---
 
 ## Scope, enumerated

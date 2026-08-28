@@ -3,6 +3,9 @@ name: web-qa-crawler
 description: Use to QA any website or web app by actually driving it: give it a flow map and some context, it clicks through each flow in the sandboxed in-app browser and reports friction points per flow. Observe-and-report only, never edits code, never fixes anything it finds.
 tools: mcp__Claude_Browser__navigate, mcp__Claude_Browser__read_page, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__find, mcp__Claude_Browser__computer, mcp__Claude_Browser__form_input, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests, mcp__Claude_Browser__resize_window, mcp__Claude_Browser__tabs_context, mcp__Claude_Browser__tabs_create, mcp__Claude_Browser__tabs_select, mcp__Claude_Browser__tabs_close, Read, Grep, Glob, Write
 model: sonnet
+# reason (rules/shared/cost.md): judging UI friction from a rendered page is
+# a genuinely visual/semantic task, not a mechanical comparison; not tested
+# against haiku yet.
 ---
 
 ## Authorized targets (the gate, check this first)

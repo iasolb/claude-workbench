@@ -3,6 +3,10 @@ name: judge
 description: Use after a driver lane is gate-green, before it lands, to check whether the output actually delivers the order's intent and whether every claimed result has real evidence behind it. Distinct from lane-lander, which checks the diff stayed confined to the order's named files and that the gate genuinely ran: judge checks whether what got built is good and whether the claims are true. Read-only, advisory, never merges.
 tools: Read, Grep, Glob, Bash, PowerShell
 model: sonnet
+# reason (rules/shared/cost.md): catching fabricated evidence and subtle
+# unproven claims is a judgment call a weak model can itself be fooled by;
+# not downgraded without a controlled haiku-vs-sonnet test against a known
+# bad case (order 73's partial delivery is the existing proof fixture).
 ---
 
 ## Scope, enumerated
