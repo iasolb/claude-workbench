@@ -5,36 +5,33 @@
 # version is that a session should read one prepared artifact instead of
 # rediscovering the machine, and it should be told loudly when that artifact is
 # missing or stale rather than quietly starting blind.
-#
-# Paths come from workbench.conf, never hardcoded: this file is published in a
-# public repository, so an absolute path here would publish a username.
-# `tools/brief.py` is part of the maintainer's private tooling and is not
-# shipped here, so this hook no-ops cleanly when it is absent rather than
-# printing an error at every session start.
 set -u
 
+# All three paths come from configuration, following the REPO_PATH pattern the
+# other hooks use. The repo (from REPO_PATH) fixes where brief.py lives and
+# where the state landing zone is (a sibling of the repo, outside any git
+# tree); the interpreter (PYTHON_PATH) is machine-specific and never assumed.
 CONF="${WORKBENCH_CONF:-$HOME/.claude/workbench.conf}"
 [ -f "$CONF" ] || exit 0
 REPO="$(sed -n 's/^REPO_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
+PYTHON="$(sed -n 's/^PYTHON_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
 [ -n "$REPO" ] || exit 0
+[ -n "$PYTHON" ] || exit 0
+
+. "$(dirname "${BASH_SOURCE[0]}")/portable.sh"
 
 BRIEF="$REPO/tools/brief.py"
-# The gathered artifact lands beside the repo, not inside it: it is machine
-# state, not versioned content.
-OUT="$(dirname "$REPO")/state/brief.toon"
+OUT="$REPO/../state/brief.toon"
 
-# Discover the interpreter rather than naming one. Same approach as env-report.
-PYTHON=""
-for candidate in python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-        PYTHON="$candidate"
-        break
-    fi
-done
-
-[ -n "$PYTHON" ] && [ -f "$BRIEF" ] || exit 0
-
-"$PYTHON" "$BRIEF" --no-cost --quiet >/dev/null 2>&1
+# BLOCKERS AND WHAT CHANGED, NOT THE WHOLE STATE (Ian, 2026-09-10, choosing
+# between three shapes). This used to print the entire artifact, about 90 lines
+# of absolute state, and the two most expensive facts of that evening were in
+# none of it: a scheduled task had fired two drivers ten minutes earlier, and
+# the executor allowance was fully spent. Absolute state also cannot say what
+# is NEW, which is how a week of repeated work stayed invisible.
+#
+# The full artifact is still written and the headline points at it.
+"$PYTHON" "$BRIEF" --no-cost --headline
 
 if [ ! -f "$OUT" ]; then
     echo "[brief] GATHER FAILED and no previous brief exists."
@@ -43,19 +40,11 @@ if [ ! -f "$OUT" ]; then
 fi
 
 now=$(date +%s)
-mt=$(stat -c %Y "$OUT" 2>/dev/null || echo "$now")
+mt=$(file_mtime "$OUT")
+# mtime 0 means the file could not be stat'd at all; do not call that fresh.
+[ "$mt" -eq 0 ] && mt=0
 age=$(( (now - mt) / 60 ))
 if [ "$age" -gt 10 ]; then
-    echo "[brief] STALE: this brief is ${age} minutes old, so the gather did not run just now."
-    echo "[brief] Treat everything below as history, not state."
+    echo "[brief] STALE: the artifact is ${age} minutes old, so the gather above did not actually run."
+    echo "[brief] Treat the headline as history, not state."
 fi
-
-# The age check alone misses the case where the artifact was rewritten just now
-# but its REMOTE half failed, which reads as fresh and is half blind.
-if grep -q "remote_gathered: false" "$OUT" 2>/dev/null; then
-    echo "[brief] REMOTE GATHER FAILED just now. Everything below is HOST-SIDE ONLY."
-    echo "[brief] Check that the automation service is up before trusting remote state."
-fi
-
-echo "[brief] machine + remote state, gathered on demand. Full file: $OUT"
-cat "$OUT"

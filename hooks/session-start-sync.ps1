@@ -118,11 +118,67 @@ if ($markers) {
     Write-Output "[workbench] CONFLICT MARKERS in $repo, staged or committed or both. Convergence SKIPPED this pass ON PURPOSE: re-stashing a marker-corrupted tree is how orphan stashes accumulate. Name the files with git -C `"$repo`" grep -l -E '^<<<<<<< ', fix them, commit, then start a fresh session to merge."
 }
 elseif ($hasOrigin -and $syncBranches) {
+    # CONVERGENCE TAKES A LOCK, because several sessions start at once and every
+    # one of them runs this hook against the SAME repo. Measured 2026-09-02 on
+    # the Mac: three SessionStart rows landed inside one second, and one
+    # pre-merge stash was left on the list with its content already back in the
+    # worktree, which is exactly what an interleaved push/pop pair looks like.
+    # `git stash pop` with no argument takes stash@{0}, so when two hooks stash
+    # at once one of them pops the OTHER one's entry: the tree ends up correct,
+    # and an entry is orphaned with nothing to show it happened. That is also
+    # the shape of the seventeen stashes that had piled up by 2026-08-15, and
+    # the reason a person had to inspect and drop one by hand (golden rule A3:
+    # a guard whose failure mode needs a person is not automation).
+    #
+    # The lock is a directory create, which fails atomically when it already
+    # exists, and it lives under .git so it can never dirty the worktree,
+    # never be committed, and never be stashed.
+    # The loop is bounded by its own condition and the catch block contains
+    # neither `continue` nor `break`, deliberately: both behave differently
+    # inside a catch than inside a plain loop body in PowerShell, and this file
+    # runs before every PC session, so a control-flow surprise here would stop
+    # that machine converging silently. Bounding the count instead needs no
+    # such knowledge to read.
+    $lock = Join-Path $repo '.git\session-start-sync.lock'
+    $held = $false
+    $waited = 0
+    while ((-not $held) -and ($waited -lt 20)) {
+        try {
+            [void](New-Item -ItemType Directory -Path $lock -ErrorAction Stop)
+            $held = $true
+        } catch {
+            $waited++
+            # Nothing under this lock should ever take a minute, so a lock
+            # older than that belonged to a session that died. Break it rather
+            # than skipping convergence on this machine forever.
+            $stale = $false
+            if (Test-Path $lock) {
+                $stale = (((Get-Date) - (Get-Item $lock).LastWriteTime).TotalSeconds -gt 120)
+            }
+            if ($stale) {
+                Remove-Item -Recurse -Force $lock -ErrorAction SilentlyContinue
+            } else {
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+    if (-not $held) {
+        Write-Output "[workbench] another session is converging $repo right now, so this pass skipped the merge on purpose rather than racing it. Nothing is lost: whoever holds the lock is doing the same merge."
+    }
+}
+if ($held) {
+    # Re-read the tree under the lock: whoever held it may have merged,
+    # committed, or restored a stash since $dirty was measured above.
+    $dirty = (git -C $repo status --porcelain) -join "`n"
     $stashed = $false
+    $stashSha = ''
     if ($dirty) {
         git -C $repo stash push --include-untracked --quiet -m 'session-start-sync: pre-merge autostash' *> $null
         $stashed = ($LASTEXITCODE -eq 0)
-        if ($stashed) { Write-Output '[workbench] stashed local changes to merge; restored below.' }
+        if ($stashed) {
+            $stashSha = (git -C $repo rev-parse -q --verify 'stash@{0}')
+            Write-Output '[workbench] stashed local changes to merge; restored below.'
+        }
     }
     foreach ($b in ($syncBranches -split '[, ]+' | Where-Object { $_ })) {
         $other = "origin/$b"
@@ -138,22 +194,37 @@ elseif ($hasOrigin -and $syncBranches) {
         }
     }
     if ($stashed) {
-        git -C $repo stash pop *> $null
-        # Do NOT infer the pop failed from its exit code. Observed 2026-08-15:
-        # this fired with an EMPTY file list ("CONFLICT MARKERS in  ,") against
-        # a clean tree and an empty stash list, because the pop had fully
-        # applied and dropped. A false alarm that says the repo is corrupt
-        # costs the same trust as a missed real one. Assert on CONTENT.
-        $conflicted = @(git -C $repo diff --name-only --diff-filter=U) -join ', '
-        $stashLeft = @(git -C $repo stash list).Count
-        if ($conflicted) {
-            Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted. Fix those files by hand FIRST (do not pop again, it will re-conflict), then commit."
-        }
-        if ($stashLeft -gt 0) {
-            Write-Output "[workbench] the pre-merge stash is STILL on the list ($stashLeft total). Check it with git -C `"$repo`" stash show -p and drop it if its content already landed."
+        # Pop OUR entry, never "whatever is on top". The lock should make those
+        # the same thing; assert it instead of trusting it, because popping
+        # another session's stash SUCCEEDS and leaves no trace, which is why
+        # this went unnoticed for weeks.
+        $topSha = (git -C $repo rev-parse -q --verify 'stash@{0}')
+        if ($stashSha -and $topSha -ne $stashSha) {
+            Write-Output "[workbench] NOT popping: the top stash is not the one this hook pushed, so something is stashing without the lock. Both were left alone. Inspect: git -C `"$repo`" stash list"
+        } else {
+            git -C $repo stash pop *> $null
+            # Do NOT infer the pop failed from its exit code. Observed 2026-08-15:
+            # this fired with an EMPTY file list ("CONFLICT MARKERS in  ,") against
+            # a clean tree and an empty stash list, because the pop had fully
+            # applied and dropped. A false alarm that says the repo is corrupt
+            # costs the same trust as a missed real one. Assert on CONTENT.
+            $conflicted = @(git -C $repo diff --name-only --diff-filter=U) -join ', '
+            if ($conflicted) {
+                Write-Output "[workbench] STASH DID NOT REAPPLY. The worktree now has CONFLICT MARKERS in: $conflicted. Fix those files by hand FIRST (do not pop again, it will re-conflict), then commit."
+            }
+            elseif ($stashSha -and (git -C $repo rev-parse -q --verify 'stash@{0}') -eq $stashSha) {
+                # A clean pop drops its own entry. One still sitting there means
+                # the pop refused for a reason that produced no conflict, so the
+                # content may NOT have landed: report it, never drop it blind.
+                Write-Output "[workbench] the pre-merge stash is STILL on the list after a pop that reported no conflict, so its content may not have landed. Check it with git -C `"$repo`" stash show -p and drop it only if it did."
+            }
         }
     }
 }
+# Release it whether or not anything above succeeded. A lock left behind would
+# make every later session skip convergence for two minutes, which is the same
+# silent staleness this whole section exists to prevent.
+if ($held) { Remove-Item -Recurse -Force $lock -ErrorAction SilentlyContinue }
 
 # 4b. Orphan stashes. A failed pop leaves its stash on the list and nothing
 # has ever swept them: SEVENTEEN had piled up by 2026-08-15, each one a
@@ -163,6 +234,31 @@ if ($hasOrigin) {
     $stashCount = @(git -C $repo stash list).Count
     if ($stashCount -gt 0) {
         Write-Output "[workbench] $stashCount leftover stash(es) in $repo from failed pops. Inspect the newest with git -C `"$repo`" stash show -p and drop what already landed: git -C `"$repo`" stash drop"
+    }
+}
+
+# 4c. IS THE AUTOMATION SERVICE UP? Full reasoning in the .sh counterpart. The
+# short version: golden rule 1 tells every session to call the session-checklist
+# endpoint instead of re-deriving its opening order, and STEP 1 of what that
+# endpoint returns is "start the automation service". The checklist is served BY
+# that service, so when it is down the instruction to check it cannot be
+# delivered. On 2026-09-02 it had been down long enough for all fourteen
+# workflows, the driver-end ping, the queue tick and the farm app's staging
+# containers to be dead, with nothing reporting it. The probe has to live in a
+# hook, which depends on nothing.
+$n8nUrl = $confValues['N8N_URL']
+if (-not $n8nUrl) { $n8nUrl = 'http://127.0.0.1:5678' }
+try {
+    $resp = Invoke-WebRequest -Uri "$n8nUrl/webhook/session-checklist" `
+            -TimeoutSec 4 -UseBasicParsing -ErrorAction Stop
+    Write-Output "[workbench] automation service answering at $n8nUrl (HTTP $($resp.StatusCode))."
+} catch {
+    $code = 000
+    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+    if ($code -eq 404) {
+        Write-Output "[workbench] automation service answering at $n8nUrl (HTTP 404, so it is up but that workflow is missing)."
+    } else {
+        Write-Output "[workbench] AUTOMATION SERVICE NOT ANSWERING at $n8nUrl (HTTP $code). Every workflow is dead while this is down, including the driver-end ping and the queue tick, and the cheap tier is unavailable so work will silently route to an expensive one. Fix: start Docker Desktop, then check docker ps."
     }
 }
 

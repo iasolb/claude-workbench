@@ -10,7 +10,7 @@ esac
 CONF="${WORKBENCH_CONF:-$HOME/.claude/workbench.conf}"
 [[ -f "$CONF" ]] || exit 0
 REPO="$(sed -n 's/^REPO_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
-[[ -n "$REPO" && -d "$REPO/.git" ]] || exit 0
+[[ -n "$REPO" && -e "$REPO/.git" ]] || exit 0
 
 cd "$REPO" || exit 0
 git add -A
