@@ -4,7 +4,7 @@ Custom subagent definitions (see the Claude Code docs on subagents). The
 installer symlinks this directory into `~/.claude` so any agent you add
 here is versioned and follows you across machines.
 
-Five subagents ship, all read-only or approval-gated by design:
+Six subagents ship, all read-only or approval-gated by design:
 
 | Agent | What it is for |
 |---|---|
@@ -13,13 +13,14 @@ Five subagents ship, all read-only or approval-gated by design:
 | `abstraction-pattern-reviewer` | Reviews class/module design against the house abstraction conventions. Read-only. |
 | `api-wrapper-reviewer` | Reviews API-wrapper projects against the house conventions. Read-only. |
 | `ux-auditor` | Checks a screen against its audience's UX pattern. Read-only, and it never blocks styling freedom. |
-| `intake` | Writes one complete job order from an approved objective, including literal commands and permission pre-flight. Stops without launching or executing work. |
 | `fast-lane` | Fixes Claude process bugs and permission-list gaps. It is the only agent allowed to edit the allow/deny list. |
-| `cleanup-crew` | Keeps the queue, memory, reports, rules, and mirrored workload issue consistent without touching the live Fast Lane inbox. |
-| `pathfinder` | Turns actionable standing priorities into at most one small order per goal and records blockers without inventing work. |
-| `judge` | Reads a landed diff against its order's intent and reports whether the evidence proves the claim, read-only, advisory, never merges. |
-| `lane-lander` | Lands one finished driver lane a caller already named: verifies the diff is confined, runs the gate, lands it, closes the window, reports. Never edits. |
-| `lane-tender` | Runs the operational land/gate/close loop over every driver lane needing attention, finding the lanes itself, and reports in plain words. Never writes files, never fixes a driver's work. |
+
+**Six more files are POINTERS, not agents.** `intake`, `cleanup-crew`,
+`pathfinder`, `judge`, `lane-lander` and `lane-tender` were absorbed into the
+quarterback on 2026-08-30 and now run as inline passes of
+`commands/quarterback.md`. Each file is kept as a one-line pointer so that
+anything resolving the old name still lands somewhere true, rather than
+dangling. Do not build on them; read `commands/quarterback.md` instead.
 
 Before first use, open `web-qa-crawler.md` and add the owner's deployed
 staging hosts to the authorized-targets gate, and open `qa-cleanup-crew.md`

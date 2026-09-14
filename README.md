@@ -134,11 +134,16 @@ two of them does neither job well.
 
 | Command | What it is for |
 |---|---|
-| `/quarterback` | The senior seat. Structural faults, security and data integrity, tradeoffs talked through with you. Runs the cleanup pass inline at the end of its turn. |
-| `/intake` | Turns a request into a job card, including the permission pre-flight that names every command the card will run. Never works the card it writes. |
-| `/driver` | Works ONE card, runs its test gate, pastes real output as evidence, then stops. |
+| `/quarterback` | The senior seat. Structural faults, security and data integrity, tradeoffs talked through with you. Runs the intake, pathfinder, cleanup and lane-verification passes INLINE, at the end of its turn. |
+| `/driver` | Works ONE order, runs its gate, pastes real output as evidence, then stops. |
 | `/fast-lane` | Process bugs and permission holes. The only writer of the allow/deny list, and the lane your screenshots go to. Meant to run in parallel with the others. |
-| `/cleanup-crew` | Keeps the queue, the memory files and the persona logs honest: converge, prune, guard priority, fold yesterday's logs into one. |
+
+**There used to be five personas. There are three.** `/intake`,
+`/cleanup-crew` and `/pathfinder` were absorbed into the quarterback on
+2026-08-30 and are now passes 1, 2 and 3 of `commands/quarterback.md`. Their
+command files are kept as one-line pointers so an old habit still resolves to
+something true. One seat doing four passes beat three seats handing work to
+each other.
 
 Five lightweight commands sit alongside them and are NOT personas, so they
 have no turn report and no wrap-up ritual: `/debug`, `/explain`, `/find`
