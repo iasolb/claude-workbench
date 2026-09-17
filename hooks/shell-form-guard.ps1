@@ -101,8 +101,13 @@ try {
     if ($command -match "`n") {
         $reasons += "it spans multiple lines, and the permission matcher treats a newline as a command separator, so the trailing lines match no allowlist entry"
     }
-    if ($unquoted.Contains("&&")) {
-        $reasons += "it chains with && , so the matcher sees sub-commands that match no allowlist entry"
+    # `||` ADDED 2026-09-16. The .sh has checked both since it was written; this
+    # file checked only `&&`, so `false || true` was allowed here and denied
+    # there. Found by running the guard's own test matrix on Windows for the
+    # first time: it had always invoked the .sh by path, which Windows cannot
+    # execute, so this script had never been asserted at all.
+    if ($unquoted.Contains("&&") -or $unquoted.Contains("||")) {
+        $reasons += "it chains with && or || , so the matcher sees sub-commands that match no allowlist entry"
     }
     # Rule 3 RETIRED: a bare `cd` is free and is wanted. The chain that used to
     # follow it is still denied by rules 1/2/6/7.
@@ -136,9 +141,16 @@ try {
     # payload while the permission matcher still splits the string on it.
     # Basename, so python / python.exe / C:\...\python.exe are ONE rule. Flag is
     # looked for in $unquoted, so a -c inside a payload or pattern is text.
+    #
+    # THE FLAG MATCH IS CASE-SENSITIVE FOR `-c` AND ONLY FOR `-c`, fixed
+    # 2026-09-16 to match the .sh. A case-insensitive alternation made `-C`
+    # match, and `-C` is GIT'S REPOSITORY FLAG, so an interpreter invocation
+    # carrying `git -C <repo>` was denied outright. `-Command` stays
+    # case-insensitive, because PowerShell's own flag is.
     $inlineInterp = ""
     if ($first) { $inlineInterp = ((($first -split '[/\\]')[-1]) -replace '(?i)\.exe$', '').ToLower() }
-    if ((@("python", "python3", "py", "node", "ruby", "perl", "bash", "sh", "zsh", "powershell", "pwsh", "cmd") -contains $inlineInterp) -and ($unquoted -match '(?i)(^|\s)-(c|command)(\s|$)')) {
+    $inlineFlag = ($unquoted -cmatch '(^|\s)-c(\s|$)') -or ($unquoted -match '(?i)(^|\s)-command(\s|$)')
+    if ((@("python", "python3", "py", "node", "ruby", "perl", "bash", "sh", "zsh", "powershell", "pwsh", "cmd") -contains $inlineInterp) -and $inlineFlag) {
         $reasons += "it hands INLINE CODE to $inlineInterp with -c/-Command, which matches no allowlist entry at any path spelling: the allowed interpreter forms are -m <module> and a named script. An inner ; chain also hides from the chain rule inside the quoted payload while the permission matcher still splits on it. A question about a file is the Read, Grep or Glob tool, none of which can ever prompt; if it is genuinely a script, put it in a file and invoke that file"
     }
     # Rule 10. Checked against the WHOLE command, not $unquoted: the entire
