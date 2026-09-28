@@ -33,6 +33,12 @@ OUT="$REPO/../state/brief.toon"
 # The full artifact is still written and the headline points at it.
 "$PYTHON" "$BRIEF" --no-cost --headline
 
+# A hook reading a setting this machine's workbench.conf lacks does nothing,
+# silently (queue/global.md, the named instance of fewer-commands). One line,
+# every session: which keys are missing, or that none are, or that it could not
+# read the file. Never silence (tools/conf-keys.py exits 1 or 3 on a finding).
+"$PYTHON" "$REPO/tools/conf-keys.py" || true
+
 if [ ! -f "$OUT" ]; then
     echo "[brief] GATHER FAILED and no previous brief exists."
     echo "[brief] Start blind, or run: $PYTHON $BRIEF"

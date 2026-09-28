@@ -42,6 +42,12 @@ $out   = Join-Path (Split-Path $repo -Parent) 'state\brief.toon'
 # moment to spend one. Run tools/cost-guard.py before dispatching agent work.
 & $python $brief --no-cost --headline
 
+# A hook reading a setting this machine's workbench.conf lacks does nothing,
+# silently (queue/global.md, the named instance of fewer-commands). One line,
+# every session: which keys are missing, or that none are, or that it could not
+# read the file. Never silence (tools/conf-keys.py exits 1 or 3 on a finding).
+& $python (Join-Path $repo 'tools\conf-keys.py')
+
 if (-not (Test-Path $out)) {
     Write-Output "[brief] GATHER FAILED and no previous brief exists."
     Write-Output "[brief] Start blind, or run: $python $brief"
