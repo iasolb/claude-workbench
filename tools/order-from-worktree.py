@@ -76,6 +76,30 @@ def spec_args(whole: list[str], diff: list[str], delete: list[str]) -> list[str]
     return args
 
 
+def commit_message(order: Path, title: str | None) -> str:
+    """"order 208: <title>", the subject every order commit already wears."""
+    number = order.stem.split("-", 1)[0]
+    return f"order {number}: {title or order.stem}"
+
+
+def commit_order(order: Path, title: str | None) -> bool:
+    """Commit the order file alone, by pathspec (another session shares this
+    working tree). WHY (A3/A4, 2026-10-03): go.py cuts a lane from the last
+    commit and HOLDS an order whose spec was never committed, so every
+    generated order needed a commit by hand before it could launch; three in
+    one session. Promoting stays the read-it-first gate: a status flip is a
+    stamp go.py ignores, so committing the draft costs that gate nothing."""
+    repo = TOOLS.parent
+    try:
+        rel = order.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return False
+    if subprocess.run(["git", "-C", str(repo), "add", "--", rel]).returncode != 0:
+        return False
+    return subprocess.run(["git", "-C", str(repo), "commit", "-m",
+                           commit_message(order, title), "--", rel]).returncode == 0
+
+
 def new_order_file(before: set[Path], after: set[Path], slug: str) -> Path | None:
     """The one order file that appeared, read off the directory, never off
     new-order.py's printed prose. None unless exactly one matches the slug."""
@@ -142,8 +166,12 @@ def main(argv: list[str] | None = None) -> int:
     if subprocess.run(spec).returncode != 0:
         print(f"order-from-worktree: spec-from-verified.py failed; {order} is still a placeholder draft")
         return 1
+    if not commit_order(order, a.title):
+        print(f"order-from-worktree: {order.name} is written but NOT committed; go.py "
+              f"holds an uncommitted spec, so commit it before launching")
+        return 1
     print(f"order-from-worktree: {order.name}: {len(whole)} whole, {len(diff)} diff, "
-          f"{len(delete)} delete, left DRAFT")
+          f"{len(delete)} delete, committed, left DRAFT")
     return 0
 
 
@@ -196,6 +224,14 @@ def self_test() -> int:
         want("a slug that did not appear finds nothing",
              new_order_file(before, set(d.glob("*.md")), "other") is None)
     want("an empty worktree classifies to nothing", classify("") == ([], [], []))
+    want("the commit subject is the order's number and title",
+         commit_message(Path("208-farm-baskets.md"), "Baskets at a place")
+         == "order 208: Baskets at a place")
+    want("an order cut without a title commits under its stem",
+         commit_message(Path("209-farm-x.md"), None) == "order 209: 209-farm-x")
+    with tempfile.TemporaryDirectory() as tmp:
+        want("an order outside this repo is never committed",
+             commit_order(Path(tmp) / "210-elsewhere.md", "x") is False)
 
     print(f"order-from-worktree self-test: {passed}/{total} checks passed")
     return 0 if passed == total else 1
