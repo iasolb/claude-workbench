@@ -107,13 +107,28 @@ def new_order_file(before: set[Path], after: set[Path], slug: str) -> Path | Non
     return made[0] if len(made) == 1 else None
 
 
+def resolve_order(arg: str, orders: Path = ORDERS) -> Path | None:
+    """`--order` as a path, or as the order NUMBER this tool printed. A bare
+    number was refused as "no such order 215" (2026-10-04) while 215 sat in
+    queue/orders/, so a second run had to be retyped by path."""
+    path = Path(arg)
+    if path.is_file():
+        return path
+    if arg.isdigit():
+        found = sorted(orders.glob(f"{int(arg)}-*.md"))
+        return found[0] if len(found) == 1 else None
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="order-from-worktree")
     ap.add_argument("--self-test", action="store_true")
-    for name in ("verified", "base", "slug", "title", "name", "gate", "intro", "repo"):
+    for name in ("verified", "base", "slug", "title", "name", "gate", "repo"):
         ap.add_argument(f"--{name}")
+    ap.add_argument("--intro", help="a FILE holding the order's opening prose, never the prose itself")
     ap.add_argument("--order", help="fill this EXISTING draft instead of cutting a new one "
-                                    "(a first run that stopped at the spec step)")
+                                    "(a first run that stopped at the spec step): its path "
+                                    "or its number")
     ap.add_argument("--commands", default="git-status-short")
     ap.add_argument("--machine", default="pc")
     ap.add_argument("--model", default="opencode/gpt-5-nano")
@@ -141,10 +156,15 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     py = sys.executable
+    if a.intro and not Path(a.intro).is_file():
+        print("order-from-worktree: --intro is a FILE holding the prose, and "
+              f"{a.intro[:60]!r} is not one")
+        return 2
     if a.order:
-        order = Path(a.order)
-        if not order.is_file():
-            print(f"order-from-worktree: no such order {order}")
+        order = resolve_order(a.order)
+        if order is None:
+            print(f"order-from-worktree: no such order {a.order} (a path, or a "
+                  f"number with exactly one file in {ORDERS})")
             return 1
     else:
         before = set(ORDERS.glob("*.md"))
@@ -232,6 +252,15 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         want("an order outside this repo is never committed",
              commit_order(Path(tmp) / "210-elsewhere.md", "x") is False)
+    # Red-proven 2026-10-04 by dropping the isdigit branch: the number check fails.
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "215-farm-pitch.md").write_text("x", encoding="utf-8")
+        want("--order takes the NUMBER the first run printed",
+             resolve_order("215", d) == d / "215-farm-pitch.md")
+        want("and a path still works", resolve_order(str(d / "215-farm-pitch.md"), d)
+             == d / "215-farm-pitch.md")
+        want("a number with no order file resolves to nothing", resolve_order("216", d) is None)
 
     print(f"order-from-worktree self-test: {passed}/{total} checks passed")
     return 0 if passed == total else 1
