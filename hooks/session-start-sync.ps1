@@ -258,7 +258,19 @@ try {
     if ($code -eq 404) {
         Write-Output "[workbench] automation service answering at $n8nUrl (HTTP 404, so it is up but that workflow is missing)."
     } else {
-        Write-Output "[workbench] AUTOMATION SERVICE NOT ANSWERING at $n8nUrl (HTTP $code). Every workflow is dead while this is down, including the driver-end ping and the queue tick, and the cheap tier is unavailable so work will silently route to an expensive one. Fix: start Docker Desktop, then check docker ps."
+        Write-Output "[workbench] AUTOMATION SERVICE NOT ANSWERING at $n8nUrl (HTTP $code). Every workflow is dead while this is down, including the driver-end ping and the queue tick, and the cheap tier is unavailable so work will silently route to an expensive one."
+        # A4, 2026-10-05: a session had to start Docker Desktop by hand after the
+        # PC woke. The hook starts it instead. Start-Process returns at once, so
+        # the hook never waits on the engine.
+        $dockerExe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
+        if (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue) {
+            Write-Output "[workbench] Docker Desktop IS running, so the fault is inside it: check docker ps for the n8n containers."
+        } elseif (Test-Path -LiteralPath $dockerExe) {
+            Start-Process -FilePath $dockerExe
+            Write-Output "[workbench] Docker Desktop was not running, so this hook STARTED it. The engine and n8n take about a minute; confirm with docker ps."
+        } else {
+            Write-Output "[workbench] Docker Desktop is not installed at $dockerExe, so nothing could start it."
+        }
     }
 }
 
