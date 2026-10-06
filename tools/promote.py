@@ -131,6 +131,12 @@ def apply(repo: Path, ask, unapplied, machine: str) -> list[dict]:
                 if new is not None:
                     path.write_text(new, encoding="utf-8")
                     outcome, reason = "promote_applied", "now pending"
+                elif reason == "it is already pending":
+                    # COLD START (2026-10-06): an order a session set pending
+                    # while no launcher ran is still a start request. The
+                    # listener starts go.py only on promote_applied, so a
+                    # refusal here left a pending order nothing launched.
+                    outcome, reason = "promote_applied", "already pending, the start stands"
         _record(ask, outcome, job_id, request_id, reason, machine)
         results.append({"request_id": request_id, "job_id": job_id,
                         "outcome": outcome, "reason": reason})
@@ -200,8 +206,10 @@ def self_test() -> int:
         (repo / "queue" / "orders" / "9-x.md").write_text(draft, encoding="utf-8")
         (repo / "queue" / "orders" / "8-y.md").write_text(
             draft.replace("draft", "running"), encoding="utf-8")
+        (repo / "queue" / "orders" / "6-p.md").write_text(
+            draft.replace("draft", "pending"), encoding="utf-8")
         paths = {"9-x": "queue/orders/9-x.md", "8-y": "queue/orders/8-y.md",
-                 "7-z": "queue/orders/done/7-z.md"}
+                 "7-z": "queue/orders/done/7-z.md", "6-p": "queue/orders/6-p.md"}
         events = []
 
         def ask(sql, params=()):
@@ -213,7 +221,7 @@ def self_test() -> int:
             raise AssertionError(sql)
 
         reqs = [[101, "9-x", None], [102, "8-y", None], [103, "7-z", None],
-                [104, "nope", None]]
+                [104, "nope", None], [105, "6-p", None]]
         out = apply(repo, ask, lambda: reqs, "testbox")
         by = {r["job_id"]: r for r in out}
         want(by["9-x"]["outcome"] == "promote_applied"
@@ -230,9 +238,15 @@ def self_test() -> int:
         want(by["nope"]["outcome"] == "promote_refused"
              and "no such job" in by["nope"]["reason"],
              "an unknown job is refused by name", by)
-        want(len(events) == 4
+        # Red-proven 2026-10-06 by deleting the already-pending branch in apply().
+        want(by["6-p"]["outcome"] == "promote_applied"
+             and (repo / "queue/orders/6-p.md").read_text(encoding="utf-8")
+             == draft.replace("draft", "pending"),
+             "an ALREADY-pending order answers applied, so the listener starts "
+             "a launcher, and its file is not rewritten", by)
+        want(len(events) == 5
              and {json.loads(e[3])["request_id"] for e in events}
-             == {"101", "102", "103", "104"},
+             == {"101", "102", "103", "104", "105"},
              "EVERY request gets exactly one answering event carrying its id, "
              "so the catch-up query never offers it again", events)
         want(all(e[1] == "testbox" for e in events),
