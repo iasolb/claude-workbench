@@ -71,7 +71,11 @@ if ! ln -s "$repo_root" "$preflight_target" 2>/dev/null; then
 fi
 rm -f "$preflight_target"
 
-items=(CLAUDE.md settings.json commands agents rules hooks)
+# rules/ is NOT linked whole (2026-10-09): Claude Code loads every .md under
+# ~/.claude/rules into every session, so a whole-folder link loaded the twelve
+# read-on-demand rule files too. tools/claude-rules-link.py links only the
+# files CLAUDE.md imports, below.
+items=(CLAUDE.md settings.json commands agents hooks)
 
 # Every item must exist in the repo before anything is unlinked. A partial
 # install leaves the framework half-loaded, which is worse than not running.
@@ -113,6 +117,7 @@ replace_with_symlink() {
 for item in "${items[@]}"; do
     replace_with_symlink "$claude_dir/$item" "$repo_root/$item" "$item"
 done
+/usr/bin/python3 "$repo_root/tools/claude-rules-link.py" --apply --claude-dir "$claude_dir"
 
 # Default to the invocation directory, matching the workbench installer's
 # behaviour, but always also cover the repo itself so a session started inside
