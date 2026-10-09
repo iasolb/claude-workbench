@@ -276,8 +276,20 @@ def self_test() -> int:
              css("own", root=root, build=build) == 2)
         drop("own", root=root)
 
+        want("the memory bank defaults to its machine branch, never main",
+             default_base(repo, repo, "windows") == "windows")
+        want("an app repo defaults to main", default_base(repo, base / "bank", "windows") == "main")
+
     print("\nscratch self-test: %d/%d checks passed" % (checks[1], checks[0]))
     return 0 if checks[1] == checks[0] else 1
+
+
+def default_base(repo: Path, bank: Path, machine_branch: str) -> str:
+    """The branch a scratch job is cut from when --base is not given: the
+    memory bank's own machine branch (it has no `main`, so the old fixed
+    default refused every bank job, 2026-10-09), and `main` for app repos."""
+    same = os.path.realpath(repo) == os.path.realpath(bank)
+    return machine_branch if same and machine_branch else "main"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -286,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("verb", nargs="?", choices=("new", "css", "drop"))
     ap.add_argument("job", nargs="?")
     ap.add_argument("--repo", help="the real checkout a NEW worktree is cut from")
-    ap.add_argument("--base", default="main")
+    ap.add_argument("--base", help="default: the bank's machine branch, else main")
     ap.add_argument("--root", default=str(ROOT), help="the scratch root")
     a = ap.parse_args(argv)
     if a.self_test:
@@ -297,7 +309,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.verb == "new":
         if not a.repo:
             ap.error("new needs --repo, the real checkout to cut from")
-        return new(a.job, Path(a.repo), a.base, root)
+        base = a.base
+        if not base:
+            import machinelib
+            base = default_base(Path(a.repo), Path(__file__).resolve().parent.parent,
+                                machinelib.machine_branch())
+        return new(a.job, Path(a.repo), base, root)
     if a.verb == "css":
         return css(a.job, root)
     return drop(a.job, root)
