@@ -82,20 +82,27 @@ def commit_message(order: Path, title: str | None) -> str:
     return f"order {number}: {title or order.stem}"
 
 
-def commit_order(order: Path, title: str | None) -> bool:
+def commit_order(order: Path, title: str | None, repo: Path | None = None) -> bool:
     """Commit the order file alone, by pathspec (another session shares this
     working tree). WHY (A3/A4, 2026-10-03): go.py cuts a lane from the last
     commit and HOLDS an order whose spec was never committed, so every
     generated order needed a commit by hand before it could launch; three in
     one session. Promoting stays the read-it-first gate: a status flip is a
-    stamp go.py ignores, so committing the draft costs that gate nothing."""
-    repo = TOOLS.parent
+    stamp go.py ignores, so committing the draft costs that gate nothing.
+
+    A file identical to what is committed IS committed (2026-10-09): a re-ship
+    that refills an unchanged spec has nothing to commit, and git's refusal
+    used to read as "not committed" and stop the ship."""
+    repo = repo or TOOLS.parent
     try:
         rel = order.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:
         return False
     if subprocess.run(["git", "-C", str(repo), "add", "--", rel]).returncode != 0:
         return False
+    if subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", rel],
+                      capture_output=True).returncode == 0:
+        return True
     return subprocess.run(["git", "-C", str(repo), "commit", "-m",
                            commit_message(order, title), "--", rel]).returncode == 0
 
@@ -252,6 +259,26 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         want("an order outside this repo is never committed",
              commit_order(Path(tmp) / "210-elsewhere.md", "x") is False)
+    # Red-proven 2026-10-09 by dropping the diff --quiet branch: the refill fails.
+    with tempfile.TemporaryDirectory() as tmp:
+        r = Path(tmp)
+        for args in (["init", "-q"], ["config", "user.email", "t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"]):
+            subprocess.run(["git", "-C", str(r), *args], capture_output=True)
+        o = r / "211-x.md"
+        o.write_text("spec one\n", encoding="utf-8")
+
+        def commits() -> int:
+            out = subprocess.run(["git", "-C", str(r), "rev-list", "--count", "HEAD"],
+                                 capture_output=True, text=True).stdout.strip()
+            return int(out) if out.isdigit() else 0
+
+        want("a new order is committed", commit_order(o, "x", repo=r) is True and commits() == 1)
+        want("refilling it with an IDENTICAL spec counts as committed, with no new commit",
+             commit_order(o, "x", repo=r) is True and commits() == 1)
+        o.write_text("spec two\n", encoding="utf-8")
+        want("a changed spec is committed again", commit_order(o, "x", repo=r) is True
+             and commits() == 2)
     # Red-proven 2026-10-04 by dropping the isdigit branch: the number check fails.
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
