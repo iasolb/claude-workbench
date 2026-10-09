@@ -127,6 +127,18 @@ def resolve_order(arg: str, orders: Path = ORDERS) -> Path | None:
     return None
 
 
+def with_writes(text: str, writes: list[str]) -> str:
+    """The order with `writes:` set to exactly what the verified change touches,
+    and no `reads:` (2026-10-09). A draft cut before the work guesses its files,
+    and a reads list makes go.py cut a SPARSE lane where a gate that names the
+    fast suite finds no tests/unit; both were hand-edited on the first farm
+    draft refilled that night."""
+    head, sep, rest = text.partition("\n---")
+    lines = [ln for ln in head.splitlines() if not ln.startswith("reads:")]
+    lines = [f"writes: {','.join(writes)}" if ln.startswith("writes:") else ln for ln in lines]
+    return "\n".join(lines) + sep + rest
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="order-from-worktree")
     ap.add_argument("--self-test", action="store_true")
@@ -173,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"order-from-worktree: no such order {a.order} (a path, or a "
                   f"number with exactly one file in {ORDERS})")
             return 1
+        order.write_text(with_writes(order.read_text(encoding="utf-8"), whole + diff + delete),
+                         encoding="utf-8")
     else:
         before = set(ORDERS.glob("*.md"))
         cmd = [py, str(TOOLS / "new-order.py"), "--slug", a.slug, "--title", a.title,
@@ -259,6 +273,15 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         want("an order outside this repo is never committed",
              commit_order(Path(tmp) / "210-elsewhere.md", "x") is False)
+    draft = ("---\norder: 249\nstatus: draft\nwrites: app/a.py,static/b.js\n"
+             "reads: app/c.py\nlane: ../worktrees/x\n---\n\n# body\nwrites: in prose\n")
+    synced = with_writes(draft, ["app/a.py", "app/c.py", "tests/t.py"])
+    want("a refill sets writes: to the files the change touched",
+         "\nwrites: app/a.py,app/c.py,tests/t.py\n" in synced)
+    want("and drops reads:, which would make go.py cut a sparse lane",
+         "reads:" not in synced)
+    want("and touches nothing past the frontmatter",
+         synced.endswith("---\n\n# body\nwrites: in prose\n") and "lane: ../worktrees/x" in synced)
     # Red-proven 2026-10-09 by dropping the diff --quiet branch: the refill fails.
     with tempfile.TemporaryDirectory() as tmp:
         r = Path(tmp)

@@ -114,6 +114,14 @@ def new(job: str, repo: Path, base: str = "main", root: Path = ROOT) -> int:
     return 0
 
 
+def needs_css(wt: Path) -> bool:
+    """Does this checkout build a stylesheet it does not commit? 2026-10-09:
+    twice in one night a farm scratch ran its tests unstyled (built css is
+    gitignored), and eight browser tests failed for that alone."""
+    pkg = wt / "package.json"
+    return pkg.is_file() and '"build:css"' in pkg.read_text(encoding="utf-8")
+
+
 def css(job: str, root: Path = ROOT, build: list[str] | None = None) -> int:
     """Build the stylesheet inside the worktree from its own templates, borrowing
     the real checkout's node_modules only for as long as the build runs."""
@@ -280,6 +288,15 @@ def self_test() -> int:
              default_base(repo, repo, "windows") == "windows")
         want("an app repo defaults to main", default_base(repo, base / "bank", "windows") == "main")
 
+        styled = base / "styled"
+        styled.mkdir()
+        want("a checkout with no package.json builds no stylesheet", not needs_css(styled))
+        (styled / "package.json").write_text('{"scripts": {"test": "x"}}', encoding="utf-8")
+        want("nor one whose package.json has no build:css", not needs_css(styled))
+        (styled / "package.json").write_text(
+            '{"scripts": {"build:css": "tailwindcss -i a -o b"}}', encoding="utf-8")
+        want("one with build:css gets its stylesheet built on new", needs_css(styled))
+
     print("\nscratch self-test: %d/%d checks passed" % (checks[1], checks[0]))
     return 0 if checks[1] == checks[0] else 1
 
@@ -314,7 +331,10 @@ def main(argv: list[str] | None = None) -> int:
             import machinelib
             base = default_base(Path(a.repo), Path(__file__).resolve().parent.parent,
                                 machinelib.machine_branch())
-        return new(a.job, Path(a.repo), base, root)
+        rc = new(a.job, Path(a.repo), base, root)
+        if rc == 0 and needs_css(_where(root, a.job)[1]):
+            return css(a.job, root)
+        return rc
     if a.verb == "css":
         return css(a.job, root)
     return drop(a.job, root)
