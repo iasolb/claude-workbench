@@ -25,6 +25,45 @@ from pathlib import Path
 from typing import List, Tuple
 
 
+def default_branch(repo: Path) -> str:
+    """The name origin/HEAD points at, or main when it points nowhere."""
+    rc, out, _ = git(["symbolic-ref", "refs/remotes/origin/HEAD"], repo)
+    if rc != 0:
+        return "main"
+    ref = out.strip()
+    if ref.startswith("ref: "):
+        ref = ref[len("ref: ") :].strip()
+    return ref.split("/")[-1]
+
+
+def unmerged_report(repo: Path) -> Tuple[bool, List[str]]:
+    """Every remote branch NOT merged into the default branch, with how many of
+    its commits have no patch-equivalent there (git cherry '+' lines). Deletes
+    nothing: a branch with unique work is a person's call."""
+    rc, _, err = git(["fetch", "--prune", "origin"], repo)
+    if rc != 0:
+        return False, [f"git fetch failed: {err.strip()}"]
+    default = default_branch(repo)
+    rc, out, err = git(["branch", "-r", "--no-merged", f"origin/{default}"], repo)
+    if rc != 0:
+        return False, [f"git branch query failed: {err.strip()}"]
+    names = [b for b in normalized_lines(out) if "->" not in b and b != "origin/HEAD"]
+    if not names:
+        return True, [f"{repo}: no unmerged branches"]
+    messages: List[str] = []
+    for b in sorted(names):
+        name = b.split("origin/", 1)[-1]
+        rc, out, err = git(["cherry", f"origin/{default}", b], repo)
+        if rc != 0:
+            return False, [f"git cherry {b} failed: {err.strip()}"]
+        unique = sum(1 for line in out.splitlines() if line.startswith("+"))
+        if unique:
+            messages.append(f"{repo}: {name} has {unique} unique commit(s)")
+        else:
+            messages.append(f"{repo}: {name} has nothing unique")
+    return True, messages
+
+
 def git(cmd: List[str], repo: Path) -> Tuple[int, str, str]:
     """Run a git command in the given repository path. Returns (rc, stdout, stderr)."""
     full = ["git", "-C", str(repo)] + cmd
@@ -119,7 +158,7 @@ def self_test() -> int:
     origin bare repo actually removes it while leaving the others.
     """
     checks = 0
-    total = 7
+    total = 9
     temp = tempfile.TemporaryDirectory()
     base = Path(temp.name)
 
@@ -210,6 +249,15 @@ def self_test() -> int:
             print("self-test: 1/5 checks passed")
             return 1
 
+        # The unmerged report: open-work has one commit main lacks.
+        report = subprocess.run([sys.executable, __file__, str(clone_path), "--unmerged"],
+                                cwd=str(base), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        lines = report.stdout.splitlines()
+        if any("open-work has 1 unique commit(s)" in line for line in lines):
+            checks += 1
+        if not any("merged-work" in line for line in lines):
+            checks += 1
+
         # Run apply on the clone to delete merged-work from origin.git
         apply_run = subprocess.run([sys.executable, __file__, str(clone_path), "--apply"], cwd=str(base), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if apply_run.returncode != 0:
@@ -243,6 +291,8 @@ def main():
     parser = argparse.ArgumentParser(description="Prune merged remote branches")
     parser.add_argument("repos", nargs="*", help="Paths to repositories to prune")
     parser.add_argument("--apply", action="store_true", help="Apply deletions on remotes")
+    parser.add_argument("--unmerged", action="store_true",
+                        help="Report unmerged branches and their unique commits; deletes nothing")
     parser.add_argument("--self-test", action="store_true", dest="self_test", help="Run self-test fixture")
     args = parser.parse_args()
 
@@ -261,7 +311,7 @@ def main():
             print(f"{repo}: path does not exist")
             exit_code = 1
             continue
-        ok, msgs = prune_repo(repo, args.apply)
+        ok, msgs = unmerged_report(repo) if args.unmerged else prune_repo(repo, args.apply)
         for m in msgs:
             print(m)
         if not ok:
