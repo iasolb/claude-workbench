@@ -26,13 +26,27 @@ esac
 INPUT=$(cat)
 [[ -n "$INPUT" ]] || exit 0
 
-TYPE=$(echo "$INPUT" | jq -r '.notification_type // ""' 2>/dev/null)
-[[ "$TYPE" == "permission_prompt" ]] || exit 0
+# TWO EVENTS FEED THIS LOG (2026-09-27): PermissionRequest carries the EXACT
+# tool_name/tool_input, so its rows are `exact`; Notification only says a prompt
+# happened and its tool is GUESSED from the transcript (see prompt-log.ps1 for
+# the measured misattribution). Log-only on both: prints nothing, exits 0.
+EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
+DISP="?"
+TOOL=""
+CMD=""
+if [[ "$EVENT" == "PermissionRequest" ]]; then
+    DISP="exact"
+    TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+    CMD=$(echo "$INPUT" | jq -r '.tool_input | (.command // .file_path // .path // tostring)' 2>/dev/null)
+else
+    TYPE=$(echo "$INPUT" | jq -r '.notification_type // ""' 2>/dev/null)
+    [[ "$TYPE" == "permission_prompt" ]] || exit 0
+fi
 
 CONF="${WORKBENCH_CONF:-$HOME/.claude/workbench.conf}"
 [[ -f "$CONF" ]] || exit 0
 REPO="$(sed -n 's/^REPO_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
-[[ -n "$REPO" && -d "$REPO/.git" ]] || exit 0
+[[ -n "$REPO" && -e "$REPO/.git" ]] || exit 0
 ENVN="$(sed -n 's/^MACHINE_BRANCH=//p' "$CONF" | tr -d '\r' | head -n 1)"
 [[ -n "$ENVN" ]] || ENVN="$(uname | tr '[:upper:]' '[:lower:]')"
 
@@ -42,10 +56,8 @@ ENVN="$(sed -n 's/^MACHINE_BRANCH=//p' "$CONF" | tr -d '\r' | head -n 1)"
 # version read .tool_name/.tool_input and so logged raw JSON at best. The
 # waiting call is the LAST tool_use block in the transcript, so resolve it
 # from there.
-TOOL=""
-CMD=""
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
-if [[ -n "$TRANSCRIPT" && -f "$TRANSCRIPT" ]]; then
+if [[ "$DISP" != "exact" && -n "$TRANSCRIPT" && -f "$TRANSCRIPT" ]]; then
     while IFS= read -r line; do
         OUT=$(printf '%s' "$line" | jq -r '
             [ (.message.content // [])[] | select(.type == "tool_use") ] | last
@@ -62,6 +74,15 @@ fi
 if [[ -z "$CMD" ]]; then
     CMD="no tool_use found in transcript ($(echo "$INPUT" | jq -r '.cwd // "?"' 2>/dev/null))"
 fi
+# NEVER WRITE A SECRET INTO GIT (2026-10-11): this log is committed, and this
+# machine's copy held a billing app's client secret verbatim. Redact BEFORE
+# truncating. perl, because macOS sed has no case-insensitive flag. Same
+# patterns as prompt-log.ps1, whose test is hooks/prompt-log.test.py.
+CMD=$(printf '%s' "$CMD" | perl -pe '
+    s/((?:secret|token|password|passwd|api[_-]?key|credential)\w*\s*[=:]\s*["\x27]?)[^"\x27\s]+/${1}[REDACTED]/gi;
+    s/gh[pousr]_[A-Za-z0-9]{16,}/[REDACTED]/g;
+    s/eyJ[\w-]{8,}\.[\w-]{8,}(\.[\w-]+)?/[REDACTED]/g;
+    s/(bearer\s+)[\w.~+\/=-]{8,}/${1}[REDACTED]/gi;')
 CMD=$(printf '%s' "$CMD" | cut -c1-300)
 
 # One line, tabs are the delimiter so they cannot appear in a field.
@@ -77,11 +98,11 @@ if [[ ! -f "$LOG" ]]; then
 fi
 
 TMP="$LOG.$$"
-awk -F'\t' -v OFS='\t' -v tool="$TOOL" -v cmd="$CMD" -v now="$NOW" '
+awk -F'\t' -v OFS='\t' -v tool="$TOOL" -v cmd="$CMD" -v now="$NOW" -v disp="$DISP" '
     NR == 1 { print; next }
-    $5 == tool && $6 == cmd { $1 = $1 + 1; $3 = now; found = 1 }
+    $4 == disp && $5 == tool && $6 == cmd { $1 = $1 + 1; $3 = now; found = 1 }
     { print }
-    END { if (!found) print 1, now, now, "?", tool, cmd }
+    END { if (!found) print 1, now, now, disp, tool, cmd }
 ' "$LOG" > "$TMP" 2>/dev/null && mv "$TMP" "$LOG" 2>/dev/null
 rm -f "$TMP" 2>/dev/null
 
