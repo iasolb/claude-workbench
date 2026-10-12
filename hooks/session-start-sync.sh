@@ -73,19 +73,27 @@ if git -C "$REPO" remote get-url origin >/dev/null 2>&1; then
 fi
 
 # 3. Leftovers from a previous session (the SessionEnd hook stages, never
-# commits). timelog/sessions.csv alone is machine-generated churn (the
-# time-log hook appends rows every session), so it gets auto-committed and
-# pushed instead of nagging; anything else is a real leftover to report.
-DIRTY="$(git -C "$REPO" status --porcelain)"
-DIRTY_REAL="$(printf '%s\n' "$DIRTY" | grep -v 'timelog/sessions\.csv' | grep -v '^$' || true)"
-if [[ -n "$DIRTY" && -z "$DIRTY_REAL" ]]; then
-    if git -C "$REPO" add timelog/sessions.csv >/dev/null 2>&1 &&
-       git -C "$REPO" commit --quiet -m 'timelog: session rows (auto-commit, session-start-sync)' >/dev/null 2>&1; then
-        echo '[workbench] auto-committed timelog session rows.'
+# commits). MACHINE-WRITTEN ROW FILES are churn, not leftovers: the union-merge
+# files in the race table of rules/claude/git-github.md, plus the launcher's
+# go-run reports. They are auto-committed BY PATHSPEC and pushed, even beside a
+# real leftover; anything else is reported. Widened 2026-10-11 from timelog
+# alone, after a session start hand-committed four of them (A4). Pathspec,
+# because a plain commit takes whatever another session has staged. No
+# mapfile and no empty-array expansion: the Mac's /bin/bash is 3.2.
+# Windows twin and its test: session-start-sync.ps1, session-start-sync.test.py.
+ROW_PATHS=(timelog/sessions.csv automation/driver-errors.csv automation/model-ledger.csv prompts/windows.tsv prompts/mac.tsv reports/go)
+ROW_FILES=()
+while IFS= read -r line; do
+    [[ -n "$line" ]] && ROW_FILES+=("${line:3}")
+done < <(git -C "$REPO" status --porcelain -- "${ROW_PATHS[@]}")
+if (( ${#ROW_FILES[@]} > 0 )); then
+    if git -C "$REPO" add -- "${ROW_FILES[@]}" >/dev/null 2>&1 &&
+       git -C "$REPO" commit --quiet -m 'state: machine-written rows (auto-commit, session-start-sync)' -- "${ROW_FILES[@]}" >/dev/null 2>&1; then
+        echo "[workbench] auto-committed ${#ROW_FILES[@]} machine-written row file(s)."
         [[ "$HAS_ORIGIN" -eq 1 ]] && git_remote -C "$REPO" push --quiet
-        DIRTY="$(git -C "$REPO" status --porcelain)"
     fi
 fi
+DIRTY="$(git -C "$REPO" status --porcelain)"
 if [[ -n "$DIRTY" ]]; then
     echo "[workbench] Uncommitted changes in $REPO left from a previous session. Commit them now (draft the message from the diff), then push."
 fi

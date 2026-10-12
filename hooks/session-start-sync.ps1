@@ -68,20 +68,26 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # 3. Leftovers from a previous session (the SessionEnd hook stages, never
-# commits). timelog/sessions.csv alone is machine-generated churn (the
-# time-log hook appends rows every session), so it gets auto-committed and
-# pushed instead of nagging; anything else is a real leftover to report.
-$dirty = git -C $repo status --porcelain
-$dirtyReal = @($dirty | Where-Object { $_ -notmatch 'timelog/sessions\.csv' })
-if ($dirty -and -not $dirtyReal) {
-    git -C $repo add timelog/sessions.csv *> $null
-    git -C $repo commit --quiet -m 'timelog: session rows (auto-commit, session-start-sync)' *> $null
+# commits). MACHINE-WRITTEN ROW FILES are churn, not leftovers: the union-merge
+# files in the race table of rules/claude/git-github.md, plus the launcher's
+# go-run reports. They are auto-committed BY PATHSPEC and pushed, even beside a
+# real leftover; anything else is reported. Widened 2026-10-11 from timelog
+# alone, after a session start hand-committed four of them (A4). Pathspec,
+# because a plain commit takes whatever another session has staged.
+# Test: hooks/session-start-sync.test.py.
+$rowPaths = @('timelog/sessions.csv', 'automation/driver-errors.csv', 'automation/model-ledger.csv', 'prompts/windows.tsv', 'prompts/mac.tsv', 'reports/go')
+$rowFiles = @(git -C $repo status --porcelain '--' $rowPaths | Where-Object { $_ } | ForEach-Object { $_.Substring(3) })
+if ($rowFiles.Count -gt 0) {
+    git -C $repo add '--' $rowFiles *> $null
     if ($LASTEXITCODE -eq 0) {
-        Write-Output '[workbench] auto-committed timelog session rows.'
+        git -C $repo commit --quiet -m 'state: machine-written rows (auto-commit, session-start-sync)' '--' $rowFiles *> $null
+    }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Output "[workbench] auto-committed $($rowFiles.Count) machine-written row file(s)."
         if ($hasOrigin) { git -C $repo push --quiet *> $null }
-        $dirty = git -C $repo status --porcelain
     }
 }
+$dirty = git -C $repo status --porcelain
 if ($dirty) {
     Write-Output "[workbench] Uncommitted changes in $repo left from a previous session. Commit them now (draft the message from the diff), then push."
 }
