@@ -17,13 +17,25 @@ files as WHOLE, modified ones as DIFF, deleted ones as DELETE. Anything else (a
 rename, a conflict) is REFUSED rather than guessed. The order is left DRAFT:
 promoting it is the read-it-first gate, never this tool's.
 
+THE GATE'S FLOOR IS READ, NEVER TYPED (2026-10-17). The change was untypeable
+but the gate was still a string, and order 299 went red on it alone: its
+verified run printed 205 with the new assertions already counted, and the
+session typed `--min 209` from arithmetic. So a counted gate (a gatefloor gate,
+a bare `--self-test`, a pytest run) is RUN in the verified worktree first and
+its passing count read with `gatefloor.read_count`, never scraped here. A bare
+gate is written wrapped in gatefloor at that count; a typed floor that differs,
+a run with no readable count, and a red run are all REFUSED.
+`store:findings/a_generated_order_s_gate_is_still_typed_by_hand_and_it_went`.
+
 Exit: 0 order written, 1 a step failed, 2 the worktree holds a change this
-cannot classify, 3 nothing to order.
+cannot classify, 3 nothing to order, 4 the gate was refused against the
+verified run.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,6 +43,17 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 ORDERS = TOOLS.parent / "queue" / "orders"
+
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+import gatefloor  # noqa: E402  the one count reader; a second regex here would drift
+import gatelib  # noqa: E402
+
+# `<python> <path>/gatefloor.py --min N -- <the gate it wraps>`
+FLOOR_GATE = re.compile(r"^(?P<wrap>\S+\s+\S*gatefloor\.py)\s+--min\s+(?P<min>\d+)\s+--\s+"
+                        r"(?P<inner>\S.*)$")
+# A gate whose output carries a passing count: a self-test, or a pytest run.
+COUNTED_GATE = re.compile(r"(?:^|\s)--self-test(?:\s|$)|(?:^|[\s/\\])pytest(?:\.exe)?(?:\s|$)")
 
 LANGS = {".py": "python", ".sql": "sql", ".yaml": "yaml", ".yml": "yaml", ".sh": "bash",
          ".md": "markdown", ".html": "html", ".js": "javascript", ".json": "json",
@@ -139,6 +162,71 @@ def with_writes(text: str, writes: list[str]) -> str:
     return "\n".join(lines) + sep + rest
 
 
+def field(text: str, key: str) -> str | None:
+    """One frontmatter value of an order, or None."""
+    for ln in text.partition("\n---")[0].splitlines():
+        if ln.startswith(f"{key}:"):
+            return ln.split(":", 1)[1].strip() or None
+    return None
+
+
+class GateRefused(Exception):
+    """The gate cannot go into an order as typed; the message says why."""
+
+
+def run_verified(gate: str, verified: str, repo: str | None) -> tuple[int, str]:
+    """Run a gate in the verified worktree the way run-gate.py runs one in a lane."""
+    proc = subprocess.run(gatelib.resolve(gate, repo=repo), shell=True, cwd=verified,
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=1800)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def wrap_floor(gate: str, count: int, repo: str | None) -> str:
+    """`gate` under gatefloor at `count`. In the bank the wrapper is the lane's
+    own copy; for another repo it is a real dependency named absolutely, which
+    gatelib keeps (order 173)."""
+    interp = gate.split(None, 1)[0]
+    if interp not in gatelib.SYSTEM_PYTHON:
+        interp = Path(sys.executable).as_posix()
+    in_bank = not repo or repo.rstrip("/").endswith("ai-memory-bank")
+    floor = "tools/gatefloor.py" if in_bank else (TOOLS / "gatefloor.py").as_posix()
+    return f"{interp} {floor} --min {count} -- {gate.strip()}"
+
+
+def settle_gate(gate: str, verified: str, repo: str | None) -> tuple[str, int | None]:
+    """(the gate to write, the floor read from the verified run, or None when
+    the gate prints no count). Raises GateRefused."""
+    g = (gate or "").strip()
+    if not g:
+        raise GateRefused("there is no gate, and a missing gate is not a pass")
+    m = FLOOR_GATE.match(g)
+    if m:
+        inner, typed = m["inner"], int(m["min"])
+    elif COUNTED_GATE.search(g):
+        inner, typed = g, None
+    else:
+        return g, None
+    rc, out = run_verified(inner, verified, repo)
+    tail = "\n".join(out.splitlines()[-15:])
+    if rc != 0:
+        raise GateRefused(f"the gate FAILED in the verified worktree (exit {rc}); an "
+                          f"order is never cut from a red run:\n{tail}")
+    count = gatefloor.read_count(out)
+    if count is None:
+        raise GateRefused("the gate passed in the verified worktree but printed no "
+                          "passing count gatefloor can read, so no floor can be set. "
+                          f"Fix the tool's summary line first:\n{tail}")
+    if count < 1:
+        raise GateRefused("the gate passed in the verified worktree with 0 passing, "
+                          "which proves nothing")
+    if typed is not None and typed != count:
+        raise GateRefused(f"the typed floor is {typed} but the verified run passed "
+                          f"{count}. Pass the gate WITHOUT the gatefloor wrapper and "
+                          f"this tool writes the floor from the run")
+    return (g if typed is not None else wrap_floor(g, count, repo)), count
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="order-from-worktree")
     ap.add_argument("--self-test", action="store_true")
@@ -185,12 +273,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"order-from-worktree: no such order {a.order} (a path, or a "
                   f"number with exactly one file in {ORDERS})")
             return 1
-        order.write_text(with_writes(order.read_text(encoding="utf-8"), whole + diff + delete),
-                         encoding="utf-8")
+        text = order.read_text(encoding="utf-8")
+        typed, repo = field(text, "gate"), field(text, "repo")
+    else:
+        typed, repo = a.gate, a.repo
+    try:
+        gate, floor = settle_gate(typed or "", a.verified, repo)
+    except GateRefused as exc:
+        print(f"order-from-worktree: REFUSED, {exc}")
+        return 4
+    print("order-from-worktree: " + (f"gate floor {floor}, read from the verified run"
+                                     if floor is not None else
+                                     "the gate prints no count, so it is kept as typed"))
+    if a.order:
+        if typed and gate != typed:
+            text = text.replace(typed, gate)
+        order.write_text(with_writes(text, whole + diff + delete), encoding="utf-8")
     else:
         before = set(ORDERS.glob("*.md"))
         cmd = [py, str(TOOLS / "new-order.py"), "--slug", a.slug, "--title", a.title,
-               "--name", a.name, "--gate", a.gate, "--model", a.model, "--machine", a.machine,
+               "--name", a.name, "--gate", gate, "--model", a.model, "--machine", a.machine,
                "--commands", a.commands, "--writes", ",".join(whole + diff + delete),
                "--skip-path-check"]
         if a.repo:
@@ -311,6 +413,76 @@ def self_test() -> int:
         want("and a path still works", resolve_order(str(d / "215-farm-pitch.md"), d)
              == d / "215-farm-pitch.md")
         want("a number with no order file resolves to nothing", resolve_order("216", d) is None)
+
+    # THE FLOOR IS READ FROM THE VERIFIED RUN (2026-10-17). Real gates, run in a
+    # stand-in verified worktree. The summary line is after-lane.py's real
+    # shape; 205 is order 299's verified count and 209 the floor it was typed.
+    py = Path(sys.executable).as_posix()
+    with tempfile.TemporaryDirectory() as tmp:
+        v = Path(tmp)
+        (v / "tools").mkdir()
+
+        def tool(name: str, body: str) -> str:
+            (v / "tools" / f"{name}.py").write_text(body, encoding="utf-8")
+            return f"{py} tools/{name}.py --self-test"
+
+        def settled(gate: str, repo: str | None = None) -> tuple[str, object]:
+            try:
+                return settle_gate(gate, str(v), repo)
+            except GateRefused as exc:
+                return "REFUSED", str(exc)
+
+        ok = tool("ok", "print('self-test: 205 check(s), 0 failure(s)')\n")
+        floored = f"{py} tools/gatefloor.py --min 205 -- {ok}"
+        # Red-proven 2026-10-17: returning the bare gate unwrapped fails this one.
+        want("a bare self-test gate is written under gatefloor at the count the "
+             "verified run printed", settled(ok) == (floored, 205))
+        want("a typed floor equal to the verified count is kept as typed",
+             settled(floored) == (floored, 205))
+        # Red-proven 2026-10-17 by dropping the typed != count check.
+        typo = settled(f"{py} tools/gatefloor.py --min 209 -- {ok}")
+        want("a typed floor that differs from the verified count is REFUSED, "
+             "naming both numbers (order 299)",
+             typo[0] == "REFUSED" and "209" in str(typo[1]) and "205" in str(typo[1]))
+        # Red-proven 2026-10-17 by dropping the None check: settle_gate then dies
+        # comparing None to 0, and the self-test with it.
+        want("a passing gate with no readable count is REFUSED, never kept",
+             settled(tool("mute", "print('done')\n"))[0] == "REFUSED")
+        # It prints a count, so a tool reading output while ignoring the exit
+        # code would accept it. Red-proven 2026-10-17 by dropping the rc check.
+        want("a gate that FAILS in the verified worktree is REFUSED",
+             settled(tool("red", "import sys\nprint('3 assertions passed')\n"
+                                 "sys.exit(1)\n"))[0] == "REFUSED")
+        # Red-proven 2026-10-17 by dropping the count < 1 check.
+        want("a gate that passes nothing is REFUSED",
+             settled(tool("none", "print('0 assertions passed')\n"))[0] == "REFUSED")
+        # If it were run it would fail on the missing file and be refused.
+        want("a gate that prints no count is kept as typed and never run",
+             settled(f"{py} tools/missing.py") == (f"{py} tools/missing.py", None))
+        want("a missing gate is REFUSED", settled("")[0] == "REFUSED")
+        want("a pytest gate is a counted gate",
+             COUNTED_GATE.search(f"{py} -m pytest tests/unit -q") is not None)
+        farm = wrap_floor("C:/ew/.venv/Scripts/python.exe -m pytest tests/unit -q", 12,
+                          "owner/farm-app")
+        want("another repo's gate is wrapped by the bank's gatefloor, named absolutely",
+             farm == f"{py} {(TOOLS / 'gatefloor.py').as_posix()} --min 12 -- "
+                     "C:/ew/.venv/Scripts/python.exe -m pytest tests/unit -q")
+
+        # Wired into main: a refill whose draft carries order 299's typed floor
+        # exits 4 and leaves the draft alone. Red-proven 2026-10-17 by deleting
+        # the settle_gate call in main.
+        subprocess.run(["git", "-C", str(v), "init", "-q"], capture_output=True)
+        intro = v / "intro.md"
+        intro.write_text("intro\n", encoding="utf-8")
+        draft = v / "299-x.md"
+        body = (f"---\norder: 299\nstatus: draft\nwrites: x\ngate: {py} tools/gatefloor.py "
+                f"--min 209 -- {ok}\n---\n\n# body\n")
+        draft.write_text(body, encoding="utf-8")
+        rc = main(["--verified", str(v), "--base", str(v), "--intro", str(intro),
+                   "--order", str(draft)])
+        want("main refuses a draft whose typed floor the verified run contradicts, "
+             "exit 4, draft untouched",
+             rc == 4 and draft.read_text(encoding="utf-8") == body)
 
     print(f"order-from-worktree self-test: {passed}/{total} checks passed")
     return 0 if passed == total else 1
