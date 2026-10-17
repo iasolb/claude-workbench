@@ -104,6 +104,27 @@ def prune_repo(repo: Path, apply: bool) -> Tuple[bool, List[str]]:
         return False, messages
     branches = normalized_lines(out)
 
+    # 3b) A SQUASH-MERGED branch is not an ancestor of the default, so --merged
+    # never lists it, yet every one of its commits is already there as a patch.
+    # `git cherry` marks each commit '-' (an equivalent is upstream) or '+'
+    # (unique); all '-' means deleting it loses nothing. Measured 2026-10-17:
+    # three loader-repo branches that --unmerged called "nothing unique" and
+    # this function still would not prune, so they were left for a hand delete.
+    rc, out, err = git(["branch", "-r", "--no-merged", f"origin/{default}"], repo)
+    if rc != 0:
+        messages.append(f"git branch/no-merged query failed: {err.strip()}")
+        return False, messages
+    for b in normalized_lines(out):
+        if "->" in b or b == "origin/HEAD":
+            continue
+        rc, cherry, err = git(["cherry", f"origin/{default}", b], repo)
+        if rc != 0:
+            messages.append(f"git cherry {b} failed: {err.strip()}")
+            return False, messages
+        marks = [line[:1] for line in cherry.splitlines() if line.strip()]
+        if marks and "+" not in marks:
+            branches.append(b)
+
     # 4) filter: drop origin/HEAD, lines with '->', default, and protected names
     # A MACHINE BRANCH IS EVEN WITH MAIN MOST OF THE TIME, so "merged" says
     # nothing about whether it is dead. `phone` is the cloud sessions' branch
@@ -158,7 +179,7 @@ def self_test() -> int:
     origin bare repo actually removes it while leaving the others.
     """
     checks = 0
-    total = 9
+    total = 11
     temp = tempfile.TemporaryDirectory()
     base = Path(temp.name)
 
@@ -214,6 +235,19 @@ def self_test() -> int:
         subprocess.run(["git", "commit", "-m", "open work"], cwd=str(clone_path))
         subprocess.run(["git", "push", "origin", "open-work"], cwd=str(clone_path))
 
+        # 4b. squashed-work: its change lands on main as a SQUASH, so it is not
+        # an ancestor of main and only `git cherry` can tell it is spent.
+        subprocess.run(["git", "checkout", "main"], cwd=str(clone_path))
+        subprocess.run(["git", "checkout", "-b", "squashed-work"], cwd=str(clone_path))
+        (clone_path / "squashed.txt").write_text("squashed")
+        subprocess.run(["git", "add", "squashed.txt"], cwd=str(clone_path))
+        subprocess.run(["git", "commit", "-m", "squashed work"], cwd=str(clone_path))
+        subprocess.run(["git", "push", "origin", "squashed-work"], cwd=str(clone_path))
+        subprocess.run(["git", "checkout", "main"], cwd=str(clone_path))
+        subprocess.run(["git", "merge", "--squash", "squashed-work"], cwd=str(clone_path))
+        subprocess.run(["git", "commit", "-m", "squash of squashed work"], cwd=str(clone_path))
+        subprocess.run(["git", "push", "origin", "main"], cwd=str(clone_path))
+
         # 5. windows branch from main
         subprocess.run(["git", "checkout", "main"], cwd=str(clone_path))
         subprocess.run(["git", "checkout", "-b", "windows"], cwd=str(clone_path))
@@ -248,6 +282,8 @@ def self_test() -> int:
         else:
             print("self-test: 1/5 checks passed")
             return 1
+        if any("squashed-work" in line for line in dry_run.stdout.splitlines()):
+            checks += 1
 
         # The unmerged report: open-work has one commit main lacks.
         report = subprocess.run([sys.executable, __file__, str(clone_path), "--unmerged"],
@@ -273,6 +309,8 @@ def self_test() -> int:
         else:
             print("self-test: 3/5 checks passed")
             return 1
+        if "squashed-work" not in heads:
+            checks += 1
 
         # Ensure other branches remain
         for b in ["main", "open-work", "windows", "phone", "archive/old"]:
