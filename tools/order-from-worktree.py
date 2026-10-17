@@ -162,6 +162,14 @@ def with_writes(text: str, writes: list[str]) -> str:
     return "\n".join(lines) + sep + rest
 
 
+def heading_title(text: str) -> str | None:
+    """The title in an order's `# Order N: <title>` heading, or None. A refill
+    (`--order`) is given no --title, so its commit subject fell back to the file
+    stem, "order 305: 305-otter-readme-plots" (2026-10-17)."""
+    m = re.search(r"^# Order \d+: (.+)$", text, flags=re.M)
+    return m.group(1).strip() if m else None
+
+
 def field(text: str, key: str) -> str | None:
     """One frontmatter value of an order, or None."""
     for ln in text.partition("\n---")[0].splitlines():
@@ -309,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     if subprocess.run(spec).returncode != 0:
         print(f"order-from-worktree: spec-from-verified.py failed; {order} is still a placeholder draft")
         return 1
-    if not commit_order(order, a.title):
+    if not commit_order(order, a.title or heading_title(order.read_text(encoding="utf-8"))):
         print(f"order-from-worktree: {order.name} is written but NOT committed; go.py "
               f"holds an uncommitted spec, so commit it before launching")
         return 1
@@ -483,6 +491,12 @@ def self_test() -> int:
         want("main refuses a draft whose typed floor the verified run contradicts, "
              "exit 4, draft untouched",
              rc == 4 and draft.read_text(encoding="utf-8") == body)
+
+    # A refill's commit subject, from the heading order 305 really carried.
+    refilled = "---\norder: 305\n---\n\n# Order 305: otter: the README describes plotting\n"
+    want("a refill's title is read off its heading",
+         heading_title(refilled) == "otter: the README describes plotting")
+    want("an order with no heading gives no title", heading_title("---\n---\nbody\n") is None)
 
     print(f"order-from-worktree self-test: {passed}/{total} checks passed")
     return 0 if passed == total else 1
