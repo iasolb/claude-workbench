@@ -35,6 +35,8 @@ verified run.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import re
 import subprocess
 import sys
@@ -282,9 +284,13 @@ def main(argv: list[str] | None = None) -> int:
                   f"number with exactly one file in {ORDERS})")
             return 1
         text = order.read_text(encoding="utf-8")
-        typed, repo = field(text, "gate"), field(text, "repo")
+        filed, repo = field(text, "gate"), field(text, "repo")
+        # A --gate given with --order REPLACES the filed one. It used to be
+        # dropped without a word, so a refill looked as if it took the new gate
+        # and kept the old one (2026-10-17, order 307).
+        typed = a.gate or filed
     else:
-        typed, repo = a.gate, a.repo
+        filed, typed, repo = None, a.gate, a.repo
     try:
         gate, floor = settle_gate(typed or "", a.verified, repo)
     except GateRefused as exc:
@@ -294,8 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                                      if floor is not None else
                                      "the gate prints no count, so it is kept as typed"))
     if a.order:
-        if typed and gate != typed:
-            text = text.replace(typed, gate)
+        if filed and gate != filed:
+            text = text.replace(filed, gate)
         order.write_text(with_writes(text, whole + diff + delete), encoding="utf-8")
     else:
         before = set(ORDERS.glob("*.md"))
@@ -491,6 +497,16 @@ def self_test() -> int:
         want("main refuses a draft whose typed floor the verified run contradicts, "
              "exit 4, draft untouched",
              rc == 4 and draft.read_text(encoding="utf-8") == body)
+
+        # A --gate given WITH --order is the gate settled. Red-proven 2026-10-17
+        # by reading the filed gate again: the refusal then names 209, not 300.
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            rc = main(["--verified", str(v), "--base", str(v), "--intro", str(intro),
+                       "--order", str(draft),
+                       "--gate", f"{py} tools/gatefloor.py --min 300 -- {ok}"])
+        want("a --gate given with --order is the one settled, never silently dropped",
+             rc == 4 and "300" in said.getvalue() and "209" not in said.getvalue())
 
     # A refill's commit subject, from the heading order 305 really carried.
     refilled = "---\norder: 305\n---\n\n# Order 305: otter: the README describes plotting\n"
