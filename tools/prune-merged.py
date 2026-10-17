@@ -47,7 +47,8 @@ def unmerged_report(repo: Path) -> Tuple[bool, List[str]]:
     rc, out, err = git(["branch", "-r", "--no-merged", f"origin/{default}"], repo)
     if rc != 0:
         return False, [f"git branch query failed: {err.strip()}"]
-    names = [b for b in normalized_lines(out) if "->" not in b and b != "origin/HEAD"]
+    names = [b for b in normalized_lines(out)
+             if "->" not in b and b != "origin/HEAD" and b.startswith("origin/")]
     if not names:
         return True, [f"{repo}: no unmerged branches"]
     messages: List[str] = []
@@ -134,7 +135,10 @@ def prune_repo(repo: Path, apply: bool) -> Tuple[bool, List[str]]:
     to_drop = {f"origin/{default}"}
     remaining: List[str] = []
     for b in branches:
-        if b == "origin/HEAD":
+        # ORIGIN ONLY. A second remote (the memory bank has `macbox`) lists its
+        # refs here too, and its names are not origin's to delete: measured
+        # 2026-10-17, the first live sweep tried `push origin --delete macbox/mac`.
+        if not b.startswith("origin/") or b == "origin/HEAD":
             continue
         if "->" in b:
             continue
@@ -179,7 +183,7 @@ def self_test() -> int:
     origin bare repo actually removes it while leaving the others.
     """
     checks = 0
-    total = 11
+    total = 12
     temp = tempfile.TemporaryDirectory()
     base = Path(temp.name)
 
@@ -266,6 +270,12 @@ def self_test() -> int:
         # set HEAD of origin to main in clone as per instructions
         subprocess.run(["git", "remote", "set-head", "origin", "main"], cwd=str(clone_path))
 
+        # A SECOND REMOTE, as the memory bank has (macbox). Its refs show up in
+        # `git branch -r` beside origin's and must never become deletions pushed
+        # to origin. With the bug, --apply fails on them and this test goes red.
+        subprocess.run(["git", "remote", "add", "other", str(origin_bare)], cwd=str(clone_path))
+        subprocess.run(["git", "fetch", "-q", "other"], cwd=str(clone_path))
+
         # Run dry-run on the clone
         process = subprocess.run([sys.executable, os.path.abspath(__file__), "--dry-run"], cwd=str(clone_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         # The --dry-run flag is not defined; instead, reuse the --self-test path by invoking the script with no args
@@ -283,6 +293,8 @@ def self_test() -> int:
             print("self-test: 1/5 checks passed")
             return 1
         if any("squashed-work" in line for line in dry_run.stdout.splitlines()):
+            checks += 1
+        if not any("other/" in line for line in dry_run.stdout.splitlines()):
             checks += 1
 
         # The unmerged report: open-work has one commit main lacks.
