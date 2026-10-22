@@ -17,7 +17,10 @@ copied: one fact, one place.
 A KIT IS A NAMED TARGET (Ian, 2026-10-21, in a form: "Inside the kits"). A
 useful tool lands in the kit it fits, in that kit's tools/, and
 tools/ship-recency.py keeps it identical to this copy on every landing.
-`store:facts/repos/snippets_live_in_the_kits`.
+`store:facts/repos/snippets_live_in_the_kits`. A kit copy must STAND ALONE, so
+its self-test is first run in an empty folder with nothing beside it, and a
+tool that needs our other internals is refused rather than published broken
+(found 2026-10-21: find-duplicates imported the TOON encoder lazily).
 """
 
 from __future__ import annotations
@@ -26,7 +29,9 @@ import argparse
 import importlib.util
 import pathlib
 import shutil
+import subprocess
 import sys
+import tempfile
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 
@@ -43,6 +48,24 @@ def kit_root(kit: str, home: pathlib.Path = KITS_HOME) -> pathlib.Path | None:
     return path if (path / ".git").exists() else None
 
 
+def runs_alone(src: pathlib.Path, timeout: int = 180) -> str | None:
+    """None when the tool's self-test passes with NOTHING beside it, else why
+    not. A sibling import that works in this repo breaks in a kit."""
+    with tempfile.TemporaryDirectory() as tmp:
+        lone = pathlib.Path(tmp) / src.name
+        shutil.copyfile(src, lone)
+        try:
+            r = subprocess.run([sys.executable, str(lone), "--self-test"],
+                               cwd=tmp, capture_output=True, text=True,
+                               timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return f"its self-test ran past {timeout}s"
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
+        return f"self-test exit {r.returncode}: {tail[-1] if tail else 'no output'}"
+    return None
+
+
 def _mirror_sync():
     """Load the hyphenated sibling module, which import cannot name."""
     path = TOOLS / "mirror-sync.py"
@@ -55,7 +78,7 @@ def _mirror_sync():
 
 def publish(name: str, dry_run: bool = False, ms=None,
             wb: pathlib.Path | None = None, kit: str | None = None,
-            home: pathlib.Path = KITS_HOME) -> tuple[int, str]:
+            home: pathlib.Path = KITS_HOME, alone=None) -> tuple[int, str]:
     """(exit_code, sentence). 0 published, 1 refused, 2 cannot tell."""
     if "/" in name or "\\" in name or name.startswith("."):
         return 2, f"give a bare tool filename, not a path: {name}"
@@ -82,6 +105,11 @@ def publish(name: str, dry_run: bool = False, ms=None,
         shown = ", ".join(str(f) for f in list(found)[:4])
         return 1, (f"REFUSED {name}: it carries things a public repo must not "
                    f"have ({shown}). Sanitise it, then publish.")
+    if kit is not None:
+        why_not = (alone or runs_alone)(src)
+        if why_not:
+            return 1, (f"REFUSED {name}: it does not run on its own ({why_not}), "
+                       f"so it was not published into {kit}")
 
     dest = pathlib.Path(wb) / "tools" / name
     if dry_run:
@@ -157,9 +185,26 @@ def self_test() -> int:
         want(code == 2 and "not cloned" in why,
              "a kit with no checkout refuses rather than looking published", why)
         (home / "ai-kit" / ".git").mkdir(parents=True)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
+                            alone=lambda p: "self-test exit 1: no module named x")
+        want(code == 1 and not (home / "ai-kit" / "tools" / me).exists(),
+             "a tool that does not run on its own is refused and copies nothing", why)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
+                            alone=lambda p: None)
         want(code == 0 and (home / "ai-kit" / "tools" / me).is_file(),
              "a clean tool lands in the named kit's tools/", why)
+
+        # runs_alone ITSELF, on two throwaway tools: one needs nothing, one
+        # imports a module that only exists beside it in the real repo.
+        lone = pathlib.Path(tmp) / "lone.py"
+        lone.write_text("import sys\nprint('1 check passed')\nsys.exit(0)\n",
+                        encoding="utf-8")
+        needy = pathlib.Path(tmp) / "needy.py"
+        needy.write_text("import a_sibling_only_the_repo_has\n", encoding="utf-8")
+        want(runs_alone(lone) is None, "a tool needing nothing runs alone")
+        why_not = runs_alone(needy)
+        want(why_not is not None and "a_sibling_only_the_repo_has" in why_not,
+             "a tool importing a sibling does not, and the reason names it", why_not)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(dirty={me}), home=home)
         want(code == 1, "a kit gets the same personal-data refusal", code)
 
