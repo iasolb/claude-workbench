@@ -27,9 +27,17 @@ gate is written wrapped in gatefloor at that count; a typed floor that differs,
 a run with no readable count, and a red run are all REFUSED.
 `store:findings/a_generated_order_s_gate_is_still_typed_by_hand_and_it_went`.
 
+A STALE SCRATCH IS REFUSED (2026-10-21). The spec is the base checkout's
+CURRENT text against the verified text, so a file that changed in the base
+after the scratch was cut would be put back the way the scratch saw it: the
+order would undo the other landing without a word. Measured that night, when a
+sibling session landed two changes to tools/publish-tool.py while a scratch of
+it was open. The same holds for a file another session is editing in the base
+and has not committed.
+
 Exit: 0 order written, 1 a step failed, 2 the worktree holds a change this
 cannot classify, 3 nothing to order, 4 the gate was refused against the
-verified run.
+verified run, 5 the scratch is behind its base for a file it changes.
 """
 
 from __future__ import annotations
@@ -88,6 +96,30 @@ def classify(porcelain: str) -> tuple[list[str], list[str], list[str]]:
         else:
             raise Unclassified(f"{code!r} {path}")
     return whole, diff, delete
+
+
+def _blob(repo: str, rel: str) -> str:
+    """The committed blob of `rel` at `repo`'s HEAD, or '' when HEAD has none."""
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", f"HEAD:{rel}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def stale_paths(verified: str, base: str, paths: list[str]) -> list[str]:
+    """The changed paths a spec cannot be cut for, each with its reason: moved
+    in the base since the scratch was cut, or edited there and uncommitted."""
+    out: list[str] = []
+    for rel in paths:
+        if _blob(verified, rel) != _blob(base, rel):
+            out.append(f"{rel} (changed in the base since the scratch was cut)")
+            continue
+        rc = subprocess.run(["git", "-C", base, "diff", "--quiet", "HEAD", "--", rel],
+                            capture_output=True).returncode
+        if rc == 1:
+            out.append(f"{rel} (edited in the base checkout and not committed)")
+        elif rc != 0:
+            out.append(f"{rel} (git could not say whether the base has edits to it)")
+    return out
 
 
 def spec_args(whole: list[str], diff: list[str], delete: list[str]) -> list[str]:
@@ -271,6 +303,12 @@ def main(argv: list[str] | None = None) -> int:
     if not (whole or diff or delete):
         print("order-from-worktree: the verified worktree has no changes")
         return 3
+    stale = stale_paths(a.verified, a.base, whole + diff + delete)
+    if stale:
+        print("order-from-worktree: REFUSED, the spec would undo work in the base: "
+              + "; ".join(stale) + ". Cut a fresh scratch from the base, re-apply "
+              "the change there, and order that one.")
+        return 5
 
     py = sys.executable
     if a.intro and not Path(a.intro).is_file():
@@ -486,6 +524,10 @@ def self_test() -> int:
         # exits 4 and leaves the draft alone. Red-proven 2026-10-17 by deleting
         # the settle_gate call in main.
         subprocess.run(["git", "-C", str(v), "init", "-q"], capture_output=True)
+        # A HEAD, so the stale-scratch check can ask what the base committed.
+        subprocess.run(["git", "-C", str(v), "-c", "user.name=t", "-c", "user.email=t",
+                        "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty",
+                        "-m", "init"], capture_output=True)
         intro = v / "intro.md"
         intro.write_text("intro\n", encoding="utf-8")
         draft = v / "299-x.md"
@@ -507,6 +549,48 @@ def self_test() -> int:
                        "--gate", f"{py} tools/gatefloor.py --min 300 -- {ok}"])
         want("a --gate given with --order is the one settled, never silently dropped",
              rc == 4 and "300" in said.getvalue() and "209" not in said.getvalue())
+
+    # A STALE SCRATCH IS REFUSED (2026-10-21): a base repo and a worktree cut
+    # from it the way scratch.py cuts one, then the base moves on.
+    with tempfile.TemporaryDirectory() as tmp:
+        b, w = Path(tmp) / "base", Path(tmp) / "wt"
+
+        def g(repo: Path, *args: str) -> None:
+            subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
+
+        b.mkdir()
+        g(b, "init", "-q")
+        for args in (["config", "user.email", "t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"]):
+            g(b, *args)
+        for name in ("a.py", "b.py"):
+            (b / name).write_text("one\n", encoding="utf-8")
+        g(b, "add", "--", "a.py", "b.py")
+        g(b, "commit", "-q", "-m", "init")
+        g(b, "worktree", "add", "-q", "-b", "scratch/x", str(w))
+        (w / "a.py").write_text("scratch\n", encoding="utf-8")
+        (w / "new.py").write_text("new\n", encoding="utf-8")
+        want("a scratch cut from the base's tip is not stale",
+             stale_paths(str(w), str(b), ["a.py", "new.py"]) == [])
+        (b / "a.py").write_text("landed\n", encoding="utf-8")
+        g(b, "commit", "-q", "-m", "landed", "--", "a.py")
+        got = stale_paths(str(w), str(b), ["a.py", "new.py"])
+        want("a file that landed in the base after the cut is refused, by name",
+             len(got) == 1 and got[0].startswith("a.py (changed in the base"))
+        (b / "b.py").write_text("half done\n", encoding="utf-8")
+        want("a file another session is editing in the base is refused",
+             stale_paths(str(w), str(b), ["b.py"])
+             == ["b.py (edited in the base checkout and not committed)"])
+        intro = Path(tmp) / "intro.md"
+        intro.write_text("intro\n", encoding="utf-8")
+        # The gate names a missing tool, so if the guard ever regresses this run
+        # stops at exit 4 instead of cutting a real order (measured 2026-10-21:
+        # a harmless-looking gate let the broken guard write and commit one).
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = main(["--verified", str(w), "--base", str(b), "--slug", "x", "--title", "t",
+                       "--name", "n", "--gate", f"{py} tools/missing.py --self-test",
+                       "--intro", str(intro)])
+        want("main refuses a stale scratch, exit 5, before any order is cut", rc == 5)
 
     # A refill's commit subject, from the heading order 305 really carried.
     refilled = "---\norder: 305\n---\n\n# Order 305: otter: the README describes plotting\n"
