@@ -12,6 +12,7 @@ copied: one fact, one place.
     python3 tools/publish-tool.py finish-landing.py
     python3 tools/publish-tool.py finish-landing.py --dry-run
     python3 tools/publish-tool.py gatefloor.py --to ai-kit
+    python3 tools/publish-tool.py find-duplicates.py --to ai-kit --check
     python3 tools/publish-tool.py --self-test
 
 A KIT IS A NAMED TARGET (Ian, 2026-10-21, in a form: "Inside the kits"). A
@@ -21,11 +22,20 @@ tools/ship-recency.py keeps it identical to this copy on every landing.
 its self-test is first run in an empty folder with nothing beside it, and a
 tool that needs our other internals is refused rather than published broken
 (found 2026-10-21: find-duplicates imported the TOON encoder lazily).
+
+A TOOL MAY NEED A KIT-MATE (2026-10-21). `KIT_NEEDS = ("toon.py",)` at the top
+of a tool names the files it imports from beside itself. Its self-test then runs
+with exactly those files beside it, and it goes only into a kit that already
+holds them, so a clone of the kit still runs. `--check` answers "is this file
+ready for that kit" from any branch or worktree and copies nothing; `--dry-run`
+previews a real publish from here, which only the source branch makes, so it
+cannot prove a scratch copy (found the same day, when the branch rule landed).
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import pathlib
 import shutil
@@ -63,12 +73,37 @@ def kit_root(kit: str, home: pathlib.Path = KITS_HOME) -> pathlib.Path | None:
     return path if (path / ".git").exists() else None
 
 
-def runs_alone(src: pathlib.Path, timeout: int = 180) -> str | None:
-    """None when the tool's self-test passes with NOTHING beside it, else why
-    not. A sibling import that works in this repo breaks in a kit."""
+def kit_needs(src: pathlib.Path) -> tuple[str, ...]:
+    """The kit-mates a tool names in its top-level KIT_NEEDS, read by parsing
+    the file, never by running it. ValueError when the declaration is not a
+    literal list of bare tool filenames."""
+    tree = ast.parse(src.read_text(encoding="utf-8"), filename=src.name)
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if not any(isinstance(t, ast.Name) and t.id == "KIT_NEEDS" for t in targets):
+            continue
+        try:
+            names = ast.literal_eval(node.value)
+        except (ValueError, TypeError, SyntaxError):
+            raise ValueError("KIT_NEEDS is not a literal list of filenames") from None
+        if not isinstance(names, (tuple, list)) or not all(
+                isinstance(n, str) and n.endswith(".py") and not n.startswith(".")
+                and "/" not in n and "\\" not in n for n in names):
+            raise ValueError(f"KIT_NEEDS must list bare .py filenames, not {names!r}")
+        return tuple(names)
+    return ()
+
+
+def runs_alone(src: pathlib.Path, needs: tuple[str, ...] = (),
+               timeout: int = 180) -> str | None:
+    """None when the tool's self-test passes with NOTHING beside it but the
+    kit-mates it declares, else why not. A sibling import that works in this
+    repo breaks in a kit."""
     with tempfile.TemporaryDirectory() as tmp:
         lone = pathlib.Path(tmp) / src.name
-        shutil.copyfile(src, lone)
+        for f in (src, *(src.parent / n for n in needs)):
+            shutil.copyfile(f, pathlib.Path(tmp) / f.name)
         try:
             r = subprocess.run([sys.executable, str(lone), "--self-test"],
                                cwd=tmp, capture_output=True, text=True,
@@ -91,23 +126,31 @@ def _mirror_sync():
     return mod
 
 
+def _shown(found) -> str:
+    return ", ".join(str(f) for f in list(found)[:4])
+
+
 def publish(name: str, dry_run: bool = False, ms=None,
             wb: pathlib.Path | None = None, kit: str | None = None,
             home: pathlib.Path = KITS_HOME, alone=None,
-            branch: str | None = None) -> tuple[int, str]:
-    """(exit_code, sentence). 0 published, 1 refused, 2 cannot tell."""
+            branch: str | None = None, check: bool = False,
+            tools: pathlib.Path = TOOLS) -> tuple[int, str]:
+    """(exit_code, sentence). 0 published (or, with `check`, ready), 1 refused,
+    2 cannot tell."""
     if "/" in name or "\\" in name or name.startswith("."):
         return 2, f"give a bare tool filename, not a path: {name}"
-    src = TOOLS / name
+    src = tools / name
     if not src.is_file():
         return 2, f"no such tool: {src}"
 
     ms = ms or _mirror_sync()
+    if check and kit is None:
+        return 2, "a check answers for one kit: name it with --to"
     if kit is not None:
         if kit not in KITS:
             return 2, f"no such kit: {kit} (one of {', '.join(KITS)})"
         on = bank_branch() if branch is None else branch
-        if on != SOURCE_BRANCH:
+        if on != SOURCE_BRANCH and not check:
             return 2, (f"kits are written only from the {SOURCE_BRANCH} branch, and "
                        f"this bank is on {on or 'an unknown branch'}, so nothing "
                        f"was published")
@@ -123,14 +166,33 @@ def publish(name: str, dry_run: bool = False, ms=None,
 
     found = ms.pii_in(src)
     if found:
-        shown = ", ".join(str(f) for f in list(found)[:4])
         return 1, (f"REFUSED {name}: it carries things a public repo must not "
-                   f"have ({shown}). Sanitise it, then publish.")
+                   f"have ({_shown(found)}). Sanitise it, then publish.")
     if kit is not None:
-        why_not = (alone or runs_alone)(src)
+        try:
+            needs = kit_needs(src)
+        except (ValueError, SyntaxError) as exc:
+            return 2, f"cannot read what {name} needs beside it: {exc}"
+        for need in needs:
+            if not (tools / need).is_file():
+                return 2, f"{name} names {need} in KIT_NEEDS, and there is no such tool"
+            found = ms.pii_in(tools / need)
+            if found:
+                return 1, (f"REFUSED {name}: it needs {need}, which carries things "
+                           f"a public repo must not have ({_shown(found)})")
+        why_not = (alone or runs_alone)(src, needs)
         if why_not:
             return 1, (f"REFUSED {name}: it does not run on its own ({why_not}), "
                        f"so it was not published into {kit}")
+        beside = f" with {', '.join(needs)} beside it" if needs else " on its own"
+        absent = [n for n in needs if not (pathlib.Path(wb) / "tools" / n).is_file()]
+        if check:
+            first = f" Publish {', '.join(absent)} there first." if absent else ""
+            return 0, (f"{name} is ready for {kit}: clean, and its self-test "
+                       f"passes{beside}.{first}")
+        if absent:
+            return 1, (f"REFUSED {name}: it needs {', '.join(absent)} beside it, "
+                       f"which {kit} does not hold yet. Publish that first.")
 
     dest = pathlib.Path(wb) / "tools" / name
     if dry_run:
@@ -208,17 +270,65 @@ def self_test() -> int:
              "a kit with no checkout refuses rather than looking published", why)
         (home / "ai-kit" / ".git").mkdir(parents=True)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
-                            alone=lambda p: None, branch="mac")
+                            alone=lambda p, needs=(): None, branch="mac")
         want(code == 2 and not (home / "ai-kit" / "tools" / me).exists(),
              "a bank off the source branch never writes a kit", why)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch="mac",
+                            alone=lambda p, needs=(): None, check=True)
+        want(code == 0 and "ready" in why and not (home / "ai-kit" / "tools" / me).exists(),
+             "a CHECK answers from any branch and copies nothing", why)
+        code, why = publish(me, ms=FakeMS(), wb=wb, check=True)
+        want(code == 2, "a check with no kit named cannot answer", why)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch=src,
-                            alone=lambda p: "self-test exit 1: no module named x")
+                            alone=lambda p, needs=(): "self-test exit 1: no module named x")
         want(code == 1 and not (home / "ai-kit" / "tools" / me).exists(),
              "a tool that does not run on its own is refused and copies nothing", why)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
-                            alone=lambda p: None, branch=src)
+                            alone=lambda p, needs=(): None, branch=src)
         want(code == 0 and (home / "ai-kit" / "tools" / me).is_file(),
              "a clean tool lands in the named kit's tools/", why)
+
+        # A KIT-MATE, through the real runs_alone: `needy.py` imports `mate`,
+        # which only works with mate.py beside it in the kit.
+        mates = pathlib.Path(tmp) / "mates"
+        mates.mkdir()
+        (mates / "mate.py").write_text("X = 1\n", encoding="utf-8")
+        (mates / "needy.py").write_text(
+            'KIT_NEEDS = ("mate.py",)\nimport sys\nimport mate\n'
+            "print('1 check passed')\nsys.exit(0)\n", encoding="utf-8")
+        (mates / "ghost.py").write_text('KIT_NEEDS = ("nope.py",)\n', encoding="utf-8")
+        want(kit_needs(mates / "needy.py") == ("mate.py",),
+             "KIT_NEEDS is read from the file", kit_needs(mates / "needy.py"))
+        want(kit_needs(mates / "mate.py") == (), "a tool declaring nothing needs nothing")
+        for bad in ('KIT_NEEDS = ("../x.py",)\n', "KIT_NEEDS = tuple(range(2))\n"):
+            (mates / "bad.py").write_text(bad, encoding="utf-8")
+            try:
+                kit_needs(mates / "bad.py")
+                raised = False
+            except ValueError:
+                raised = True
+            want(raised, "a path or a computed KIT_NEEDS is refused, never guessed", bad)
+        want(runs_alone(mates / "needy.py") is not None,
+             "without its declared mate beside it the tool does not run")
+        want(runs_alone(mates / "needy.py", ("mate.py",)) is None,
+             "with exactly its declared mate beside it, it does")
+        kw = dict(kit="ai-kit", ms=FakeMS(), home=home, branch=src, tools=mates)
+        code, why = publish("needy.py", **kw)
+        want(code == 1 and "mate.py" in why
+             and not (home / "ai-kit" / "tools" / "needy.py").exists(),
+             "a tool whose mate the kit lacks is refused and copies nothing", why)
+        code, why = publish("needy.py", check=True, **kw)
+        want(code == 0 and "Publish mate.py there first" in why,
+             "and a check says the FILE is ready but names the mate to publish first", why)
+        code, why = publish("ghost.py", **kw)
+        want(code == 2 and "nope.py" in why, "a mate that is no tool cannot be checked", why)
+        code, why = publish("needy.py", **dict(kw, ms=FakeMS(dirty={"mate.py"})))
+        want(code == 1 and "mate.py" in why,
+             "a mate carrying private material refuses the tool", why)
+        (home / "ai-kit" / "tools" / "mate.py").write_text("X = 1\n", encoding="utf-8")
+        code, why = publish("needy.py", **kw)
+        want(code == 0 and (home / "ai-kit" / "tools" / "needy.py").is_file(),
+             "once the kit holds the mate, the tool lands beside it", why)
 
         # runs_alone ITSELF, on two throwaway tools: one needs nothing, one
         # imports a module that only exists beside it in the real repo.
@@ -247,6 +357,9 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--to", choices=KITS,
                     help="publish into this kit's tools/ instead of the workbench")
+    ap.add_argument("--check", action="store_true",
+                    help="say whether the file is ready for the --to kit, from any "
+                         "branch, copying nothing")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:
@@ -255,7 +368,7 @@ def main() -> int:
         print("publish-tool: name a tool, or pass --self-test",
               file=sys.stderr)
         return 2
-    code, why = publish(a.name, dry_run=a.dry_run, kit=a.to)
+    code, why = publish(a.name, dry_run=a.dry_run, kit=a.to, check=a.check)
     print(why, file=sys.stderr if code else sys.stdout)
     return code
 
