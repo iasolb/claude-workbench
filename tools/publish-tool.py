@@ -35,13 +35,19 @@ import tempfile
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+import machinelib  # noqa: E402  the branch names' one home
+
 # The kits a tool may be published into, and where they are cloned: ~/dev on
 # both machines, the one home tools/ship-recency.py already keeps their pins
 # in. A kit is written only from the SOURCE branch, so another machine's
 # possibly older copy of a tool never overwrites the published one.
 KITS = ("ai-kit", "data-kit", "cloud-kit")
 KITS_HOME = pathlib.Path.home() / "dev"
-SOURCE_BRANCH = "windows"
+# The source of truth is the PC's branch, read from machinelib's map rather
+# than spelled here a second time.
+SOURCE_BRANCH = next(b for b, m in machinelib.BRANCH_TO_MACHINE.items() if m == "pc")
 
 
 def bank_branch() -> str:
