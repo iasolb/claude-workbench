@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""publish-tool.py: copy ONE tool to the public workbench, after its check.
+"""publish-tool.py: copy ONE tool to the public workbench or a kit, after its check.
 
 `mirror-sync.py --apply --include-missing` is all-or-nothing: it would push
 every unpublished file at once with no per-file review, which is why the
@@ -11,7 +11,13 @@ copied: one fact, one place.
 
     python3 tools/publish-tool.py finish-landing.py
     python3 tools/publish-tool.py finish-landing.py --dry-run
+    python3 tools/publish-tool.py gatefloor.py --to ai-kit
     python3 tools/publish-tool.py --self-test
+
+A KIT IS A NAMED TARGET (Ian, 2026-10-21, in a form: "Inside the kits"). A
+useful tool lands in the kit it fits, in that kit's tools/, and
+tools/ship-recency.py keeps it identical to this copy on every landing.
+`store:facts/repos/snippets_live_in_the_kits`.
 """
 
 from __future__ import annotations
@@ -23,6 +29,18 @@ import shutil
 import sys
 
 TOOLS = pathlib.Path(__file__).resolve().parent
+
+# The kits a tool may be published into, and where they are cloned. Only the
+# PC's layout: its memory bank is the source of truth, so a kit is never
+# written from another machine's possibly older copy.
+KITS = ("ai-kit", "data-kit", "cloud-kit")
+KITS_HOME = pathlib.Path.home() / "Documents" / "ai"
+
+
+def kit_root(kit: str, home: pathlib.Path = KITS_HOME) -> pathlib.Path | None:
+    """This machine's checkout of one kit, or None when it is not cloned."""
+    path = home / kit
+    return path if (path / ".git").exists() else None
 
 
 def _mirror_sync():
@@ -36,7 +54,8 @@ def _mirror_sync():
 
 
 def publish(name: str, dry_run: bool = False, ms=None,
-            wb: pathlib.Path | None = None) -> tuple[int, str]:
+            wb: pathlib.Path | None = None, kit: str | None = None,
+            home: pathlib.Path = KITS_HOME) -> tuple[int, str]:
     """(exit_code, sentence). 0 published, 1 refused, 2 cannot tell."""
     if "/" in name or "\\" in name or name.startswith("."):
         return 2, f"give a bare tool filename, not a path: {name}"
@@ -45,6 +64,12 @@ def publish(name: str, dry_run: bool = False, ms=None,
         return 2, f"no such tool: {src}"
 
     ms = ms or _mirror_sync()
+    if kit is not None:
+        if kit not in KITS:
+            return 2, f"no such kit: {kit} (one of {', '.join(KITS)})"
+        wb = kit_root(kit, home)
+        if wb is None:
+            return 2, f"{kit} is not cloned under {home}, so nothing was published"
     if wb is None:
         wb = ms.workbench()
     if wb is None:
@@ -66,7 +91,7 @@ def publish(name: str, dry_run: bool = False, ms=None,
         shutil.copyfile(src, dest)
     except OSError as exc:
         return 2, f"could not copy {name} to {dest}: {exc}"
-    return 0, f"published {name} to {dest}. Commit and push the workbench."
+    return 0, f"published {name} to {dest}. Commit and push that repo."
 
 
 def self_test() -> int:
@@ -123,6 +148,21 @@ def self_test() -> int:
         want(code == 0 and not (wb2 / "tools" / me).exists(),
              "a dry run reports and copies nothing", why)
 
+        # A KIT: an unknown one is refused, an uncloned one refuses loudly,
+        # a cloned one receives the tool, and the same refusal applies.
+        home = pathlib.Path(tmp) / "home"
+        code, why = publish(me, kit="no-such-kit", ms=FakeMS(), home=home)
+        want(code == 2, "an unknown kit is refused", why)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home)
+        want(code == 2 and "not cloned" in why,
+             "a kit with no checkout refuses rather than looking published", why)
+        (home / "ai-kit" / ".git").mkdir(parents=True)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home)
+        want(code == 0 and (home / "ai-kit" / "tools" / me).is_file(),
+             "a clean tool lands in the named kit's tools/", why)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(dirty={me}), home=home)
+        want(code == 1, "a kit gets the same personal-data refusal", code)
+
     for f in fails:
         print(f"FAIL {f}")
     print(f"publish-tool self-test: {n - len(fails)}/{n} checks passed")
@@ -133,6 +173,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="publish-tool")
     ap.add_argument("name", nargs="?", help="a bare tool filename")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--to", choices=KITS,
+                    help="publish into this kit's tools/ instead of the workbench")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:
@@ -141,7 +183,7 @@ def main() -> int:
         print("publish-tool: name a tool, or pass --self-test",
               file=sys.stderr)
         return 2
-    code, why = publish(a.name, dry_run=a.dry_run)
+    code, why = publish(a.name, dry_run=a.dry_run, kit=a.to)
     print(why, file=sys.stderr if code else sys.stdout)
     return code
 
