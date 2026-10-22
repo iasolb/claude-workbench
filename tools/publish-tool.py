@@ -35,11 +35,20 @@ import tempfile
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 
-# The kits a tool may be published into, and where they are cloned. Only the
-# PC's layout: its memory bank is the source of truth, so a kit is never
-# written from another machine's possibly older copy.
+# The kits a tool may be published into, and where they are cloned: ~/dev on
+# both machines, the one home tools/ship-recency.py already keeps their pins
+# in. A kit is written only from the SOURCE branch, so another machine's
+# possibly older copy of a tool never overwrites the published one.
 KITS = ("ai-kit", "data-kit", "cloud-kit")
-KITS_HOME = pathlib.Path.home() / "Documents" / "ai"
+KITS_HOME = pathlib.Path.home() / "dev"
+SOURCE_BRANCH = "windows"
+
+
+def bank_branch() -> str:
+    """The branch this memory bank checkout is on, or '' when git cannot say."""
+    r = subprocess.run(["git", "-C", str(TOOLS.parent), "branch", "--show-current"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
 
 
 def kit_root(kit: str, home: pathlib.Path = KITS_HOME) -> pathlib.Path | None:
@@ -78,7 +87,8 @@ def _mirror_sync():
 
 def publish(name: str, dry_run: bool = False, ms=None,
             wb: pathlib.Path | None = None, kit: str | None = None,
-            home: pathlib.Path = KITS_HOME, alone=None) -> tuple[int, str]:
+            home: pathlib.Path = KITS_HOME, alone=None,
+            branch: str | None = None) -> tuple[int, str]:
     """(exit_code, sentence). 0 published, 1 refused, 2 cannot tell."""
     if "/" in name or "\\" in name or name.startswith("."):
         return 2, f"give a bare tool filename, not a path: {name}"
@@ -90,6 +100,11 @@ def publish(name: str, dry_run: bool = False, ms=None,
     if kit is not None:
         if kit not in KITS:
             return 2, f"no such kit: {kit} (one of {', '.join(KITS)})"
+        on = bank_branch() if branch is None else branch
+        if on != SOURCE_BRANCH:
+            return 2, (f"kits are written only from the {SOURCE_BRANCH} branch, and "
+                       f"this bank is on {on or 'an unknown branch'}, so nothing "
+                       f"was published")
         wb = kit_root(kit, home)
         if wb is None:
             return 2, f"{kit} is not cloned under {home}, so nothing was published"
@@ -179,18 +194,23 @@ def self_test() -> int:
         # A KIT: an unknown one is refused, an uncloned one refuses loudly,
         # a cloned one receives the tool, and the same refusal applies.
         home = pathlib.Path(tmp) / "home"
-        code, why = publish(me, kit="no-such-kit", ms=FakeMS(), home=home)
+        src = SOURCE_BRANCH
+        code, why = publish(me, kit="no-such-kit", ms=FakeMS(), home=home, branch=src)
         want(code == 2, "an unknown kit is refused", why)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch=src)
         want(code == 2 and "not cloned" in why,
              "a kit with no checkout refuses rather than looking published", why)
         (home / "ai-kit" / ".git").mkdir(parents=True)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
+                            alone=lambda p: None, branch="mac")
+        want(code == 2 and not (home / "ai-kit" / "tools" / me).exists(),
+             "a bank off the source branch never writes a kit", why)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch=src,
                             alone=lambda p: "self-test exit 1: no module named x")
         want(code == 1 and not (home / "ai-kit" / "tools" / me).exists(),
              "a tool that does not run on its own is refused and copies nothing", why)
         code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
-                            alone=lambda p: None)
+                            alone=lambda p: None, branch=src)
         want(code == 0 and (home / "ai-kit" / "tools" / me).is_file(),
              "a clean tool lands in the named kit's tools/", why)
 
@@ -205,7 +225,8 @@ def self_test() -> int:
         why_not = runs_alone(needy)
         want(why_not is not None and "a_sibling_only_the_repo_has" in why_not,
              "a tool importing a sibling does not, and the reason names it", why_not)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(dirty={me}), home=home)
+        code, why = publish(me, kit="ai-kit", ms=FakeMS(dirty={me}), home=home,
+                            branch=src)
         want(code == 1, "a kit gets the same personal-data refusal", code)
 
     for f in fails:
