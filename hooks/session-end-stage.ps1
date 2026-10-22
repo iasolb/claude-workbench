@@ -1,6 +1,7 @@
-# SessionEnd hook: stage (never commit or push) any pending changes in the
-# workbench repo, and notify if anything got staged. Windows counterpart of
-# session-end-stage.sh.
+# SessionEnd hook: notify if the workbench repo has uncommitted changes. It
+# never stages, commits or pushes: the repo is a SHARED working tree, and
+# staging here swept up every live session's in-progress edits. Windows
+# counterpart of session-end-stage.sh.
 
 $conf = if ($env:WORKBENCH_CONF) { $env:WORKBENCH_CONF } else { Join-Path $HOME ".claude\workbench.conf" }
 if (-not (Test-Path $conf)) { exit 0 }
@@ -9,11 +10,10 @@ $repo = $repo.Trim()
 if (-not $repo -or -not (Test-Path (Join-Path $repo ".git"))) { exit 0 }
 
 Push-Location $repo
-git add -A
-$staged = git diff --cached --name-only
+$dirty = git status --porcelain
 Pop-Location
 
-if (-not $staged) {
+if (-not $dirty) {
     exit 0
 }
 
@@ -23,7 +23,7 @@ $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Icon = [System.Drawing.SystemIcons]::Information
 $notify.Visible = $true
 $notify.BalloonTipTitle = "Claude Code"
-$notify.BalloonTipText = "Changes staged in $repoName, ready to review"
+$notify.BalloonTipText = "Uncommitted changes in $repoName"
 $notify.ShowBalloonTip(4000)
 Start-Sleep -Seconds 3
 $notify.Dispose()
