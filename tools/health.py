@@ -1099,10 +1099,14 @@ def _self_test() -> int:
              "the card prints the specific next action for the below-A- metric", card)
 
         # ---- DB: a throwaway postgres container ---------------------------
-        name = _provision_container()
-        if name is None:
-            want(False, "throwaway postgres container", "docker unavailable")
+        db_skipped = memdb.pg8000 is None
+        if db_skipped:
+            print("  skipped: pg8000 not installed")
         else:
+            name = _provision_container()
+        if name is None and not db_skipped:
+            want(False, "throwaway postgres container", "docker unavailable")
+        elif name is not None:
             live_url = "postgres://aimem:localdev@%s:%d/aimem" % (
                 ".".join(("127", "0", "0", "1")), SELFTEST_PORT)
 
