@@ -29,8 +29,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import machinelib  # noqa: E402
-import memdb  # noqa: E402
+try:  # The self-test is store-independent; live commands need the store client.
+    import memdb  # noqa: E402
+except ModuleNotFoundError:
+    memdb = None
+
+try:
+    import machinelib  # noqa: E402
+except ModuleNotFoundError:
+    machinelib = None
 
 SUBJECT = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 KEY = re.compile(r"^[a-z0-9][a-z0-9_]{0,120}$")
@@ -51,7 +58,11 @@ def _refuse(why: str) -> int:
 
 def add(subject: str, key: str, value: str, source: str, kind: str = "scalar",
         supersede: bool = False, machine: str | None = None, run=None) -> int:
-    run = run or memdb._query
+    if run is None:
+        if memdb is None:
+            print("fact: could not load the store client. Nothing was written.")
+            return 3
+        run = memdb._query
     if not SUBJECT.match(subject):
         return _refuse(f"a subject is lowercase words and dashes, not {subject!r}")
     if not KEY.match(key):
@@ -68,12 +79,23 @@ def add(subject: str, key: str, value: str, source: str, kind: str = "scalar",
             return _refuse(f"{subject}/{key} already holds a live fact; read it with "
                            f"tools/ptr.py store:facts/{subject}/{key}, then pass "
                            "--supersede to replace it")
+        if machine:
+            machine_name = machine
+        elif machinelib is not None:
+            machine_name = machinelib.machine_name()
+        else:
+            import platform
+            machine_name = platform.node() or "unknown"
         rows = run(WRITE, (subject, key, subject, key, value, kind, source,
-                           machine or machinelib.machine_name()), write=True)
-    except (memdb.CouldNotAsk, memdb.DriverMissing) as exc:
+                           machine_name), write=True)
+    except (ConnectionError, OSError) as exc:
         print(f"fact: could not reach the store ({exc}). Nothing was written.")
         return 3
     except Exception as exc:  # the server refused the statement
+        if (memdb is not None
+                and isinstance(exc, (memdb.CouldNotAsk, memdb.DriverMissing))):
+            print(f"fact: could not reach the store ({exc}). Nothing was written.")
+            return 3
         print(f"fact: the store refused it: {type(exc).__name__}: {exc}")
         return 1
     closed = int(rows[0][1]) if rows else 0
@@ -143,7 +165,7 @@ def self_test() -> int:
          and len(store.rows) == 2)
 
     def unreachable(sql: str, params: tuple, write: bool = False) -> list[list]:
-        raise memdb.CouldNotAsk("no route to the store")
+        raise ConnectionError("no route to the store")
 
     want("an unreachable store exits 3, never a quiet success",
          add("farm-app", "y", "v", source="t", machine="pc", run=unreachable) == 3)
