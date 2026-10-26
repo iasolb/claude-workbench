@@ -361,7 +361,7 @@ EXPORT_FIXTURE = """Exporting session: ses_example_02
       {"permission": "plan_enter", "pattern": "*", "action": "deny"},
       {"permission": "plan_exit", "pattern": "*", "action": "deny"}
     ],
-    "time": {"created": 1788055307967, "updated": 1788056926723}
+    "time": {"created": 1788091200000, "updated": 1788092818756}
   },
   "messages": []
 }
@@ -415,6 +415,8 @@ def self_test() -> int:
          fields["cache_write"] == 0)
     want("the export fixture parses its measured cost",
          fields["cost"] == 0.01)
+    # The fixture instant is 2026-08-30 12:00 UTC, so the local date is the
+    # same from UTC-12 to UTC+11; an instant near midnight UTC failed in EDT.
     want("the created instant is rendered as a local ISO string",
          fields["created"].startswith("2026-08-30T"))
 

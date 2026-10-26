@@ -1099,9 +1099,18 @@ def _self_test() -> int:
              "the card prints the specific next action for the below-A- metric", card)
 
         # ---- DB: a throwaway postgres container ---------------------------
-        db_skipped = memdb.pg8000 is None
-        if db_skipped:
+        # The migrations ship with your store, not with this repo: a checkout
+        # without db/ skips the block out loud instead of crashing in it.
+        try:
+            migrations = [_read_migration(m) for m in ("001_initial.sql", "005_health.sql")]
+        except RuntimeError as exc:
+            migrations = None
+            missing = str(exc)
+        db_skipped = memdb.pg8000 is None or migrations is None
+        if memdb.pg8000 is None:
             print("  skipped: pg8000 not installed")
+        elif migrations is None:
+            print("  skipped: %s (no store schema in this checkout)" % missing)
         else:
             name = _provision_container()
         if name is None and not db_skipped:
@@ -1120,10 +1129,10 @@ def _self_test() -> int:
                 return p.returncode, p.stdout.strip(), p.stderr.strip()
 
             os.environ["MEMDB_URL"] = live_url
-            rc, _o, err = container_psql(_read_migration("001_initial.sql"))
+            rc, _o, err = container_psql(migrations[0])
             want(rc == 0 and not (err or "").lower().startswith("error"),
                  "migration 001 applies cleanly", err)
-            rc, _o, err = container_psql(_read_migration("005_health.sql"))
+            rc, _o, err = container_psql(migrations[1])
             want(rc == 0 and not (err or "").lower().startswith("error"),
                  "migration 005 applies cleanly", err)
             rc, out, _e = container_psql(
