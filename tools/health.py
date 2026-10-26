@@ -44,8 +44,13 @@ THE WRITE IS UPSERT. One row per (measured_on, metric); running twice on one
 day updates rather than duplicates (db/005_health.sql). The tool writes nothing
 outside the health table.
 
+A WRITE NEEDS AN OWNER. HEALTH_STORE_OWNER must name the checkout being
+measured (or --url be given), else the card prints and nothing is written:
+MEMDB_URL says where a store is, never whose (store_write_refusal).
+
 Exit codes: 0 measured and written, 1 measured but the store refused the
-write, 3 the store could not be reached (the card still prints), 2 usage.
+write, 3 the store could not be reached (the card still prints), 4 this
+checkout does not own the store so nothing was written, 2 usage.
 """
 
 from __future__ import annotations
@@ -646,6 +651,35 @@ def _fetch_previous(measured_on):
     return out
 
 
+OWNER_VAR = "HEALTH_STORE_OWNER"
+
+
+def store_write_refusal(root: Path, env=os.environ, explicit_url: bool = False):
+    """Why this copy must NOT write its rows, or None when it may.
+
+    FAIL CLOSED (2026-10-26). MEMDB_URL says WHERE a store is, never WHOSE it
+    is. On a machine that also runs a private framework, MEMDB_URL points at
+    that framework's store, and one plain run of this public copy overwrote its
+    day's health rows with numbers measured against the wrong checkout. So a
+    write needs a declaration: HEALTH_STORE_OWNER set to the absolute path of
+    the checkout being measured. --url, the explicit throwaway-store flag, is
+    its own declaration."""
+    if explicit_url:
+        return None
+    owner = env.get(OWNER_VAR, "").strip()
+    if not owner:
+        return ("%s is not set, so nothing says this store belongs to %s. Set it to that "
+                "path to write; until then the card prints and nothing is written." % (OWNER_VAR, root))
+    try:
+        same = Path(owner).resolve() == Path(root).resolve()
+    except OSError:
+        same = False
+    if not same:
+        return ("%s names %s, but this run measures %s: writing would put another "
+                "checkout's numbers in that store." % (OWNER_VAR, owner, root))
+    return None
+
+
 def _write_rows(measured_on, results):
     """Upsert one row per metric into health. Writes nothing anywhere else.
     Returns (rc, message): 0 wrote, 1 the store refused, 3 unreachable."""
@@ -765,6 +799,10 @@ def main(argv=None) -> int:
     if guard is not None:
         print("health: no store configured; nothing was written.", file=sys.stderr)
         return guard
+    refusal = store_write_refusal(root, explicit_url=bool(a.url))
+    if refusal:
+        print("health: REFUSED TO WRITE. %s" % refusal, file=sys.stderr)
+        return 4
     rc, msg = _write_rows(measured_on, results)
     if rc == 0:
         print("health: %s" % msg)
@@ -878,6 +916,19 @@ def _self_test() -> int:
                               "" if ok else "  [%s]" % (detail,)))
         if not ok:
             fails.append(label)
+
+    # A WRITE NEEDS AN OWNER (2026-10-26): no declaration, or one naming
+    # another checkout, refuses; the measured checkout, or --url, may write.
+    here = Path(__file__).resolve().parent.parent
+    other = here.parent
+    want(store_write_refusal(here, env={}) is not None,
+         "no HEALTH_STORE_OWNER refuses the write, even with a store configured")
+    want(store_write_refusal(here, env={OWNER_VAR: str(other)}) is not None,
+         "an owner naming another checkout refuses the write")
+    want(store_write_refusal(here, env={OWNER_VAR: str(here)}) is None,
+         "the owner naming this checkout may write")
+    want(store_write_refusal(here, env={}, explicit_url=True) is None,
+         "an explicit --url is its own declaration")
 
     real_environ = dict(os.environ)
     real_local = memdb._LOCAL
