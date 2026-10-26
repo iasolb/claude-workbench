@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""unpublished-floor.py: a NEW private tool must not appear unnoticed.
+"""Fail when a private tools directory exceeds its allowed unpublished count.
 
-Goal 14 in queue/global.md. tools/lint.py WARNS that many tools have no public
-counterpart, and a warning that never fails is a detector nobody obeys. This
-turns that count into an exit code against a FLOOR, so the existing backlog
-stays legal while a NEW private tool goes red.
+    python tools/unpublished-floor.py --private tools --public public/tools
+    python tools/unpublished-floor.py --private tools --public public/tools --floor 3
 
-    python3 tools/unpublished-floor.py --self-test
-    python3 tools/unpublished-floor.py --private <dir> --public <dir>
+The default floor is zero. Raise it explicitly when an existing backlog is
+accepted; the count is unknown, not zero, if either directory is unavailable.
 """
 
 from __future__ import annotations
@@ -17,91 +15,77 @@ import pathlib
 import sys
 import tempfile
 
-# Measured 2026-09-21 by tools/lint.py. RAISING THIS IS A DECISION, not a fix.
-FLOOR = 147
+FLOOR = 0
 
 
 def unpublished(private: pathlib.Path, public: pathlib.Path) -> list[str]:
-    """Tool filenames present privately and absent publicly."""
-    have = {p.name for p in public.glob("*.py")}
-    return sorted(p.name for p in private.glob("*.py") if p.name not in have)
+    """Names of Python tools missing from the public tools directory."""
+    published = {path.name for path in public.glob("*.py")}
+    return sorted(path.name for path in private.glob("*.py") if path.name not in published)
 
 
 def check(private: pathlib.Path, public: pathlib.Path,
           floor: int = FLOOR) -> tuple[int, str]:
-    """(exit_code, sentence). 0 fine, 1 over the floor, 2 cannot tell."""
+    """Return (status, message): 0 within floor, 1 over it, 2 unknown."""
     if not private.is_dir():
         return 2, f"no private tools directory at {private}"
     if not public.is_dir():
-        # SILENCE AND SUCCESS MUST NOT LOOK ALIKE. A missing public clone
-        # would make every tool look published, so refuse to answer.
-        return 2, f"no public clone at {public}, so the count is UNKNOWN, not 0"
+        return 2, f"no public tools directory at {public}, so the count is UNKNOWN, not 0"
     missing = unpublished(private, public)
     if len(missing) > floor:
-        return 1, (f"{len(missing)} tools have no public counterpart, above the "
-                   f"floor of {floor}. First offenders: "
-                   + ", ".join(missing[:5]))
+        return 1, (f"{len(missing)} tools have no public counterpart, above the floor of {floor}. "
+                   f"First offenders: {', '.join(missing[:5])}")
     return 0, f"{len(missing)} unpublished, at or under the floor of {floor}"
 
 
 def self_test() -> int:
-    fails: list[str] = []
-    n = 0
+    failures: list[str] = []
+    checks = 0
 
-    def want(cond, label, got=None):
-        nonlocal n
-        n += 1
-        if not cond:
-            fails.append(f"{label}  [got {got!r}]")
+    def want(condition: bool, label: str, got=None) -> None:
+        nonlocal checks
+        checks += 1
+        if not condition:
+            failures.append(f"{label}  [got {got!r}]")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = pathlib.Path(tmp)
-        priv = root / "private"
-        pub = root / "public"
-        priv.mkdir()
-        pub.mkdir()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        private, public = root / "private", root / "public"
+        private.mkdir()
+        public.mkdir()
         for name in ("a.py", "b.py", "c.py"):
-            (priv / name).write_text("x", encoding="utf-8")
-        (pub / "a.py").write_text("x", encoding="utf-8")
-
-        want(unpublished(priv, pub) == ["b.py", "c.py"],
-             "only the tools with no public twin are counted",
-             unpublished(priv, pub))
-
-        code, why = check(priv, pub, floor=1)
-        want(code == 1, "two over a floor of one is a FAILURE", code)
-        want("above the floor" in why, "and it says so in words", why)
-
-        code, why = check(priv, pub, floor=2)
-        want(code == 0, "at the floor it passes, so the backlog stays legal",
-             code)
-
-        code, why = check(priv, root / "absent", floor=99)
-        want(code == 2, "a missing public clone REFUSES rather than saying 0",
-             code)
-        want("UNKNOWN" in why, "and names the count as unknown", why)
-
-    for f in fails:
-        print(f"FAIL {f}")
-    print(f"unpublished-floor self-test: {n - len(fails)}/{n} checks passed")
-    return 1 if fails else 0
+            (private / name).write_text("pass\n", encoding="utf-8")
+        (public / "a.py").write_text("pass\n", encoding="utf-8")
+        want(unpublished(private, public) == ["b.py", "c.py"],
+             "only tools without public twins are counted", unpublished(private, public))
+        code, message = check(private, public, floor=1)
+        want(code == 1 and "above the floor" in message,
+             "exceeding the floor fails with an explanation", message)
+        code, _message = check(private, public, floor=2)
+        want(code == 0, "meeting the floor passes", code)
+        code, message = check(private, root / "absent", floor=99)
+        want(code == 2 and "UNKNOWN" in message,
+             "a missing public directory refuses instead of reporting zero", message)
+    for failure in failures:
+        print(f"FAIL {failure}")
+    print(f"unpublished-floor self-test: {checks - len(failures)}/{checks} checks passed")
+    return 1 if failures else 0
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="unpublished-floor")
-    ap.add_argument("--private", default="tools")
-    ap.add_argument("--public")
-    ap.add_argument("--floor", type=int, default=FLOOR)
-    ap.add_argument("--self-test", action="store_true")
-    a = ap.parse_args()
-    if a.self_test:
+    parser = argparse.ArgumentParser(prog="unpublished-floor")
+    parser.add_argument("--private", default="tools")
+    parser.add_argument("--public")
+    parser.add_argument("--floor", type=int, default=FLOOR)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
         return self_test()
-    if not a.public:
-        print("unpublished-floor: --public is required outside --self-test",
-              file=sys.stderr)
+    if not args.public:
+        print("unpublished-floor: --public is required outside --self-test", file=sys.stderr)
         return 2
-    code, why = check(pathlib.Path(a.private), pathlib.Path(a.public), a.floor)
-    print(why)
+    code, message = check(pathlib.Path(args.private), pathlib.Path(args.public), args.floor)
+    print(message)
     return code
 
 

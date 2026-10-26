@@ -1,375 +1,145 @@
 #!/usr/bin/env python3
-"""publish-tool.py: copy ONE tool to the public workbench or a kit, after its check.
+"""Copy one checked Python tool into a public checkout's tools directory.
 
-`mirror-sync.py --apply --include-missing` is all-or-nothing: it would push
-every unpublished file at once with no per-file review, which is why the
-unpublished floor in tools/lint.py got raised instead of a tool getting
-published. This is the per-file route.
+    python tools/publish-tool.py example.py --target ~/dev/project
+    python tools/publish-tool.py example.py --target ~/dev/project --dry-run
+    python tools/publish-tool.py --self-test
 
-The PII patterns and the workbench lookup are REUSED from mirror-sync, never
-copied: one fact, one place.
+The target defaults to PUBLIC_WORKBENCH, then ~/dev/claude-workbench. The
+source is this file's tools directory. Email and IP-address patterns are
+refused before copying; review other project-specific information separately.
 
-    python3 tools/publish-tool.py finish-landing.py
-    python3 tools/publish-tool.py finish-landing.py --dry-run
-    python3 tools/publish-tool.py gatefloor.py --to ai-kit
-    python3 tools/publish-tool.py find-duplicates.py --to ai-kit --check
-    python3 tools/publish-tool.py --self-test
-
-A KIT IS A NAMED TARGET (Ian, 2026-10-21, in a form: "Inside the kits"). A
-useful tool lands in the kit it fits, in that kit's tools/, and
-tools/ship-recency.py keeps it identical to this copy on every landing.
-`store:facts/repos/snippets_live_in_the_kits`. A kit copy must STAND ALONE, so
-its self-test is first run in an empty folder with nothing beside it, and a
-tool that needs our other internals is refused rather than published broken
-(found 2026-10-21: find-duplicates imported the TOON encoder lazily).
-
-A TOOL MAY NEED A KIT-MATE (2026-10-21). `KIT_NEEDS = ("toon.py",)` at the top
-of a tool names the files it imports from beside itself. Its self-test then runs
-with exactly those files beside it, and it goes only into a kit that already
-holds them, so a clone of the kit still runs. `--check` answers "is this file
-ready for that kit" from any branch or worktree and copies nothing; `--dry-run`
-previews a real publish from here, which only the source branch makes, so it
-cannot prove a scratch copy (found the same day, when the branch rule landed).
+(2026-10-21: per-tool review avoids an all-at-once publication.)
 """
-
 from __future__ import annotations
 
 import argparse
 import ast
-import importlib.util
-import pathlib
+import ipaddress
+import os
+import re
 import shutil
-import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
-TOOLS = pathlib.Path(__file__).resolve().parent
-
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
-import machinelib  # noqa: E402  the branch names' one home
-
-# The kits a tool may be published into, and where they are cloned: ~/dev on
-# both machines, the one home tools/ship-recency.py already keeps their pins
-# in. A kit is written only from the SOURCE branch, so another machine's
-# possibly older copy of a tool never overwrites the published one.
-KITS = ("ai-kit", "data-kit", "cloud-kit")
-KITS_HOME = pathlib.Path.home() / "dev"
-# The source of truth is the PC's branch, read from machinelib's map rather
-# than spelled here a second time.
-SOURCE_BRANCH = next(b for b, m in machinelib.BRANCH_TO_MACHINE.items() if m == "pc")
+TOOLS = Path(__file__).resolve().parent
+DEFAULT_TARGET = Path.home() / "dev" / "claude-workbench"
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+[\x40][A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+OCTET = r"(?:25[0-5]|2[0-4]\d|1?\d?\d)"
+IP_RE = re.compile(rf"(?<![\w.]){OCTET}(?:\.{OCTET}){{3}}(?![\w.])")
+IPV6_CANDIDATE = re.compile(r"(?<![\w:])\[?([A-Fa-f0-9:]{2,})(?:%[A-Za-z0-9_.-]+)?\]?(?![\w:])")
 
 
-def bank_branch() -> str:
-    """The branch this memory bank checkout is on, or '' when git cannot say."""
-    r = subprocess.run(["git", "-C", str(TOOLS.parent), "branch", "--show-current"],
-                       capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else ""
-
-
-def kit_root(kit: str, home: pathlib.Path = KITS_HOME) -> pathlib.Path | None:
-    """This machine's checkout of one kit, or None when it is not cloned."""
-    path = home / kit
-    return path if (path / ".git").exists() else None
-
-
-def kit_needs(src: pathlib.Path) -> tuple[str, ...]:
-    """The kit-mates a tool names in its top-level KIT_NEEDS, read by parsing
-    the file, never by running it. ValueError when the declaration is not a
-    literal list of bare tool filenames."""
-    tree = ast.parse(src.read_text(encoding="utf-8"), filename=src.name)
-    for node in tree.body:
-        targets = (node.targets if isinstance(node, ast.Assign)
-                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
-        if not any(isinstance(t, ast.Name) and t.id == "KIT_NEEDS" for t in targets):
+def personal_pattern(path: Path) -> str | None:
+    """Return a generic PII category when a source contains a known pattern."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return "unreadable source"
+    if EMAIL_RE.search(text):
+        return "email-shaped value"
+    if IP_RE.search(text):
+        return "IP-address-shaped value"
+    for match in IPV6_CANDIDATE.finditer(text):
+        try:
+            if ipaddress.ip_address(match.group(1)).version == 6:
+                return "IP-address-shaped value"
+        except ValueError:
             continue
-        try:
-            names = ast.literal_eval(node.value)
-        except (ValueError, TypeError, SyntaxError):
-            raise ValueError("KIT_NEEDS is not a literal list of filenames") from None
-        if not isinstance(names, (tuple, list)) or not all(
-                isinstance(n, str) and n.endswith(".py") and not n.startswith(".")
-                and "/" not in n and "\\" not in n for n in names):
-            raise ValueError(f"KIT_NEEDS must list bare .py filenames, not {names!r}")
-        return tuple(names)
-    return ()
-
-
-def runs_alone(src: pathlib.Path, needs: tuple[str, ...] = (),
-               timeout: int = 180) -> str | None:
-    """None when the tool's self-test passes with NOTHING beside it but the
-    kit-mates it declares, else why not. A sibling import that works in this
-    repo breaks in a kit."""
-    with tempfile.TemporaryDirectory() as tmp:
-        lone = pathlib.Path(tmp) / src.name
-        for f in (src, *(src.parent / n for n in needs)):
-            shutil.copyfile(f, pathlib.Path(tmp) / f.name)
-        try:
-            r = subprocess.run([sys.executable, str(lone), "--self-test"],
-                               cwd=tmp, capture_output=True, text=True,
-                               timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return f"its self-test ran past {timeout}s"
-    if r.returncode != 0:
-        tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
-        return f"self-test exit {r.returncode}: {tail[-1] if tail else 'no output'}"
     return None
 
 
-def _mirror_sync():
-    """Load the hyphenated sibling module, which import cannot name."""
-    path = TOOLS / "mirror-sync.py"
-    spec = importlib.util.spec_from_file_location("mirror_sync", path)
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _shown(found) -> str:
-    return ", ".join(str(f) for f in list(found)[:4])
-
-
-def publish(name: str, dry_run: bool = False, ms=None,
-            wb: pathlib.Path | None = None, kit: str | None = None,
-            home: pathlib.Path = KITS_HOME, alone=None,
-            branch: str | None = None, check: bool = False,
-            tools: pathlib.Path = TOOLS) -> tuple[int, str]:
-    """(exit_code, sentence). 0 published (or, with `check`, ready), 1 refused,
-    2 cannot tell."""
-    if "/" in name or "\\" in name or name.startswith("."):
-        return 2, f"give a bare tool filename, not a path: {name}"
-    src = tools / name
-    if not src.is_file():
-        return 2, f"no such tool: {src}"
-
-    ms = ms or _mirror_sync()
-    if check and kit is None:
-        return 2, "a check answers for one kit: name it with --to"
-    if kit is not None:
-        if kit not in KITS:
-            return 2, f"no such kit: {kit} (one of {', '.join(KITS)})"
-        on = bank_branch() if branch is None else branch
-        if on != SOURCE_BRANCH and not check:
-            return 2, (f"kits are written only from the {SOURCE_BRANCH} branch, and "
-                       f"this bank is on {on or 'an unknown branch'}, so nothing "
-                       f"was published")
-        wb = kit_root(kit, home)
-        if wb is None:
-            return 2, f"{kit} is not cloned under {home}, so nothing was published"
-    if wb is None:
-        wb = ms.workbench()
-    if wb is None:
-        # COULD NOT ASK is never NOTHING THERE. Refusing here is the whole
-        # point: a missing workbench must not read as a successful publish.
-        return 2, "the public workbench could not be located, so nothing was published"
-
-    found = ms.pii_in(src)
-    if found:
-        return 1, (f"REFUSED {name}: it carries things a public repo must not "
-                   f"have ({_shown(found)}). Sanitise it, then publish.")
-    if kit is not None:
-        try:
-            needs = kit_needs(src)
-        except (ValueError, SyntaxError) as exc:
-            return 2, f"cannot read what {name} needs beside it: {exc}"
-        for need in needs:
-            if not (tools / need).is_file():
-                return 2, f"{name} names {need} in KIT_NEEDS, and there is no such tool"
-            found = ms.pii_in(tools / need)
-            if found:
-                return 1, (f"REFUSED {name}: it needs {need}, which carries things "
-                           f"a public repo must not have ({_shown(found)})")
-        why_not = (alone or runs_alone)(src, needs)
-        if why_not:
-            return 1, (f"REFUSED {name}: it does not run on its own ({why_not}), "
-                       f"so it was not published into {kit}")
-        beside = f" with {', '.join(needs)} beside it" if needs else " on its own"
-        absent = [n for n in needs if not (pathlib.Path(wb) / "tools" / n).is_file()]
-        if check:
-            first = f" Publish {', '.join(absent)} there first." if absent else ""
-            return 0, (f"{name} is ready for {kit}: clean, and its self-test "
-                       f"passes{beside}.{first}")
-        if absent:
-            return 1, (f"REFUSED {name}: it needs {', '.join(absent)} beside it, "
-                       f"which {kit} does not hold yet. Publish that first.")
-
-    dest = pathlib.Path(wb) / "tools" / name
-    if dry_run:
-        return 0, f"WOULD publish {name} to {dest} (it is clean)"
+def publish(name: str, target: Path, dry_run: bool = False,
+            tools: Path = TOOLS) -> tuple[int, str]:
+    if "/" in name or "\\" in name or name.startswith(".") or not name.endswith(".py"):
+        return 2, f"give a bare Python filename, not {name}"
+    source = tools / name
+    if not source.is_file():
+        return 2, f"no such tool: {source}"
     try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dest)
-    except OSError as exc:
-        return 2, f"could not copy {name} to {dest}: {exc}"
-    return 0, f"published {name} to {dest}. Commit and push that repo."
+        ast.parse(source.read_text(encoding="utf-8"), filename=name)
+    except (OSError, UnicodeError, SyntaxError) as error:
+        return 2, f"cannot parse {name}: {error}"
+    issue = personal_pattern(source)
+    if issue:
+        return 1, f"REFUSED {name}: contains {issue}; nothing was copied"
+    if not target.is_dir():
+        return 2, f"public checkout is unavailable at {target}; nothing was copied"
+    destination = target / "tools" / name
+    if dry_run:
+        return 0, f"WOULD publish {name} to {destination} (source is clean)"
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    except OSError as error:
+        return 2, f"could not copy {name} to {destination}: {error}"
+    return 0, f"published {name} to {destination}; review and commit the target checkout"
 
 
 def self_test() -> int:
-    import tempfile
+    failures = []
+    checks = 0
 
-    fails: list[str] = []
-    n = 0
+    def want(condition: bool, label: str) -> None:
+        nonlocal checks
+        checks += 1
+        if not condition:
+            failures.append(label)
 
-    def want(cond, label, got=None):
-        nonlocal n
-        n += 1
-        if not cond:
-            fails.append(f"{label}  [got {got!r}]")
-
-    class FakeMS:
-        def __init__(self, dirty=()):
-            self.dirty = set(dirty)
-
-        def workbench(self, root=None):
-            return None
-
-        def pii_in(self, path):
-            return ["a-username"] if path.name in self.dirty else []
-
-    want(publish("nope-does-not-exist.py")[0] == 2,
-         "a tool that does not exist is a REFUSAL, not a publish")
-    want(publish("../outside.py")[0] == 2,
-         "a path instead of a bare name is refused")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        wb = pathlib.Path(tmp) / "wb"
-        (wb / "tools").mkdir(parents=True)
-
-        # A CLEAN FILE PUBLISHES. Use this file itself as the fixture.
-        code, why = publish(pathlib.Path(__file__).name, ms=FakeMS(), wb=wb)
-        want(code == 0, "a clean tool publishes", why)
-        want((wb / "tools" / pathlib.Path(__file__).name).is_file(),
-             "and the file really is on the public side now")
-
-        # A DIRTY FILE IS REFUSED, AND THE MATCH IS NAMED.
-        me = pathlib.Path(__file__).name
-        code, why = publish(me, ms=FakeMS(dirty={me}), wb=wb)
-        want(code == 1, "a tool carrying private material is REFUSED", code)
-        want("a-username" in why, "and the refusal NAMES what it found", why)
-
-        # A MISSING WORKBENCH REFUSES rather than looking like a success.
-        code, why = publish(me, ms=FakeMS())
-        want(code == 2, "no workbench means no publish, loudly", code)
-
-        # A DRY RUN COPIES NOTHING.
-        wb2 = pathlib.Path(tmp) / "wb2"
-        (wb2 / "tools").mkdir(parents=True)
-        code, why = publish(me, dry_run=True, ms=FakeMS(), wb=wb2)
-        want(code == 0 and not (wb2 / "tools" / me).exists(),
-             "a dry run reports and copies nothing", why)
-
-        # A KIT: an unknown one is refused, an uncloned one refuses loudly,
-        # a cloned one receives the tool, and the same refusal applies.
-        home = pathlib.Path(tmp) / "home"
-        src = SOURCE_BRANCH
-        code, why = publish(me, kit="no-such-kit", ms=FakeMS(), home=home, branch=src)
-        want(code == 2, "an unknown kit is refused", why)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch=src)
-        want(code == 2 and "not cloned" in why,
-             "a kit with no checkout refuses rather than looking published", why)
-        (home / "ai-kit" / ".git").mkdir(parents=True)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
-                            alone=lambda p, needs=(): None, branch="mac")
-        want(code == 2 and not (home / "ai-kit" / "tools" / me).exists(),
-             "a bank off the source branch never writes a kit", why)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch="mac",
-                            alone=lambda p, needs=(): None, check=True)
-        want(code == 0 and "ready" in why and not (home / "ai-kit" / "tools" / me).exists(),
-             "a CHECK answers from any branch and copies nothing", why)
-        code, why = publish(me, ms=FakeMS(), wb=wb, check=True)
-        want(code == 2, "a check with no kit named cannot answer", why)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home, branch=src,
-                            alone=lambda p, needs=(): "self-test exit 1: no module named x")
-        want(code == 1 and not (home / "ai-kit" / "tools" / me).exists(),
-             "a tool that does not run on its own is refused and copies nothing", why)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(), home=home,
-                            alone=lambda p, needs=(): None, branch=src)
-        want(code == 0 and (home / "ai-kit" / "tools" / me).is_file(),
-             "a clean tool lands in the named kit's tools/", why)
-
-        # A KIT-MATE, through the real runs_alone: `needy.py` imports `mate`,
-        # which only works with mate.py beside it in the kit.
-        mates = pathlib.Path(tmp) / "mates"
-        mates.mkdir()
-        (mates / "mate.py").write_text("X = 1\n", encoding="utf-8")
-        (mates / "needy.py").write_text(
-            'KIT_NEEDS = ("mate.py",)\nimport sys\nimport mate\n'
-            "print('1 check passed')\nsys.exit(0)\n", encoding="utf-8")
-        (mates / "ghost.py").write_text('KIT_NEEDS = ("nope.py",)\n', encoding="utf-8")
-        want(kit_needs(mates / "needy.py") == ("mate.py",),
-             "KIT_NEEDS is read from the file", kit_needs(mates / "needy.py"))
-        want(kit_needs(mates / "mate.py") == (), "a tool declaring nothing needs nothing")
-        for bad in ('KIT_NEEDS = ("../x.py",)\n', "KIT_NEEDS = tuple(range(2))\n"):
-            (mates / "bad.py").write_text(bad, encoding="utf-8")
-            try:
-                kit_needs(mates / "bad.py")
-                raised = False
-            except ValueError:
-                raised = True
-            want(raised, "a path or a computed KIT_NEEDS is refused, never guessed", bad)
-        want(runs_alone(mates / "needy.py") is not None,
-             "without its declared mate beside it the tool does not run")
-        want(runs_alone(mates / "needy.py", ("mate.py",)) is None,
-             "with exactly its declared mate beside it, it does")
-        kw = dict(kit="ai-kit", ms=FakeMS(), home=home, branch=src, tools=mates)
-        code, why = publish("needy.py", **kw)
-        want(code == 1 and "mate.py" in why
-             and not (home / "ai-kit" / "tools" / "needy.py").exists(),
-             "a tool whose mate the kit lacks is refused and copies nothing", why)
-        code, why = publish("needy.py", check=True, **kw)
-        want(code == 0 and "Publish mate.py there first" in why,
-             "and a check says the FILE is ready but names the mate to publish first", why)
-        code, why = publish("ghost.py", **kw)
-        want(code == 2 and "nope.py" in why, "a mate that is no tool cannot be checked", why)
-        code, why = publish("needy.py", **dict(kw, ms=FakeMS(dirty={"mate.py"})))
-        want(code == 1 and "mate.py" in why,
-             "a mate carrying private material refuses the tool", why)
-        (home / "ai-kit" / "tools" / "mate.py").write_text("X = 1\n", encoding="utf-8")
-        code, why = publish("needy.py", **kw)
-        want(code == 0 and (home / "ai-kit" / "tools" / "needy.py").is_file(),
-             "once the kit holds the mate, the tool lands beside it", why)
-
-        # runs_alone ITSELF, on two throwaway tools: one needs nothing, one
-        # imports a module that only exists beside it in the real repo.
-        lone = pathlib.Path(tmp) / "lone.py"
-        lone.write_text("import sys\nprint('1 check passed')\nsys.exit(0)\n",
-                        encoding="utf-8")
-        needy = pathlib.Path(tmp) / "needy.py"
-        needy.write_text("import a_sibling_only_the_repo_has\n", encoding="utf-8")
-        want(runs_alone(lone) is None, "a tool needing nothing runs alone")
-        why_not = runs_alone(needy)
-        want(why_not is not None and "a_sibling_only_the_repo_has" in why_not,
-             "a tool importing a sibling does not, and the reason names it", why_not)
-        code, why = publish(me, kit="ai-kit", ms=FakeMS(dirty={me}), home=home,
-                            branch=src)
-        want(code == 1, "a kit gets the same personal-data refusal", code)
-
-    for f in fails:
-        print(f"FAIL {f}")
-    print(f"publish-tool self-test: {n - len(fails)}/{n} checks passed")
-    return 1 if fails else 0
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        tools, target = root / "source", root / "target"
+        tools.mkdir()
+        (target / "tools").mkdir(parents=True)
+        clean = tools / "clean.py"
+        clean.write_text("VALUE = 1\n", encoding="utf-8")
+        code, message = publish("clean.py", target, tools=tools)
+        want(code == 0 and (target / "tools" / "clean.py").read_text() == "VALUE = 1\n",
+             "a clean Python tool is copied")
+        want("review and commit" in message, "the result names the review step")
+        code, _message = publish("clean.py", target, dry_run=True, tools=tools)
+        want(code == 0, "a dry run succeeds")
+        want(publish("../outside.py", target, tools=tools)[0] == 2,
+             "a path instead of a bare filename is refused")
+        want(publish("missing.py", target, tools=tools)[0] == 2,
+             "a missing source is refused")
+        dirty = tools / "dirty.py"
+        sample_ip = ".".join(("192", "0", "2", "4"))
+        dirty.write_text(f"VALUE = {sample_ip!r}\n", encoding="utf-8")
+        want(personal_pattern(dirty) == "IP-address-shaped value",
+             "an IP-address pattern is detected")
+        sample_ipv6 = ":".join(("2001", "db8", "", "1"))
+        dirty.write_text(f"VALUE = {sample_ipv6!r}\n", encoding="utf-8")
+        want(personal_pattern(dirty) == "IP-address-shaped value",
+             "an IPv6-address pattern is detected")
+        address = "person" + chr(64) + "example" + "." + "invalid"
+        dirty.write_text(f"VALUE = {address!r}\n", encoding="utf-8")
+        want(personal_pattern(dirty) == "email-shaped value",
+             "an email-shaped value is detected")
+        want(publish("dirty.py", target, tools=tools)[0] == 1,
+             "a source with personal data is refused")
+    for failure in failures:
+        print(f"FAIL {failure}")
+    print(f"publish-tool self-test: {checks - len(failures)}/{checks} checks passed")
+    return 1 if failures else 0
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(prog="publish-tool")
-    ap.add_argument("name", nargs="?", help="a bare tool filename")
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--to", choices=KITS,
-                    help="publish into this kit's tools/ instead of the workbench")
-    ap.add_argument("--check", action="store_true",
-                    help="say whether the file is ready for the --to kit, from any "
-                         "branch, copying nothing")
-    ap.add_argument("--self-test", action="store_true")
-    a = ap.parse_args()
-    if a.self_test:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="publish-tool")
+    parser.add_argument("name", nargs="?")
+    parser.add_argument("--target", default=None, help="public checkout (default: PUBLIC_WORKBENCH or ~/dev/claude-workbench)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args(argv)
+    if args.self_test:
         return self_test()
-    if not a.name:
-        print("publish-tool: name a tool, or pass --self-test",
-              file=sys.stderr)
-        return 2
-    code, why = publish(a.name, dry_run=a.dry_run, kit=a.to, check=a.check)
-    print(why, file=sys.stderr if code else sys.stdout)
+    if not args.name:
+        parser.error("name a Python tool or pass --self-test")
+    configured = args.target or os.environ.get("PUBLIC_WORKBENCH")
+    target = Path(configured).expanduser() if configured else DEFAULT_TARGET
+    code, message = publish(args.name, target, args.dry_run)
+    print(message, file=sys.stderr if code else sys.stdout)
     return code
 
 

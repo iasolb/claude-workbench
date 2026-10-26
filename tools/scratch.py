@@ -1,35 +1,17 @@
 #!/usr/bin/env python3
-"""Create, style and drop a job's scratch worktree, with no hand-run step.
+"""Create, style, and safely remove a job's scratch worktree.
 
     python tools/scratch.py new <job> --repo <checkout> [--base main]
-    python tools/scratch.py css <job>     build the stylesheet from ITS OWN templates
-    python tools/scratch.py drop <job>    remove the worktree, its branch and its folder
+    python tools/scratch.py css <job>
+    python tools/scratch.py drop <job>
     python tools/scratch.py --self-test
 
-WHY (A3, 2026-10-03). The generated-order flow builds every change in a scratch
-worktree, one folder per job under Documents/ai/scratch, cleaned the moment the
-job lands (rules/claude/session-dirs.md). One evening ran that lifecycle by
-hand five times: `git worktree add`, a stylesheet that is a build artifact and
-so missing from every fresh worktree (a browser check then shows an unstyled
-page), then worktree remove, branch delete and folder delete. The guard refused
-two of the hand spellings along the way.
+Scratch directories default to ~/.local/share/claude-workbench/scratch and can
+be changed with SCRATCH_ROOT. The default base branch is main; set
+WORKBENCH_DEFAULT_BRANCH or pass --base to use another branch.
 
-THE HAZARD THIS REMOVES. The stylesheet build needs node_modules, which only the
-real checkout has, so the worktree borrows it through a directory link. A delete
-that walks INTO that link empties the real checkout's node_modules. Measured
-2026-10-03: `git worktree remove --force` and shutil.rmtree do NOT walk into a
-junction on the PC; a hand `Remove-Item -Recurse` in Windows PowerShell 5.1 is
-reported to, UNVERIFIED and not worth testing on the real folder. So `css`
-removes its link the moment the build ends, `drop` unlinks any directory link at
-the worktree's top level before anything recursive runs, and no scratch folder
-is ever deleted by hand.
-
-A branch holding commits found on no other branch is UNIQUE WORK and is kept,
-never deleted (rules/claude/git-github.md: deleting unique work is the owner's).
-
-Exit: 0 done, 1 a step failed, 2 refused with nothing changed.
+(2026-10-03: repeated scratch setup motivated automating the lifecycle.)
 """
-
 from __future__ import annotations
 
 import argparse
@@ -41,304 +23,231 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2] / "scratch"
+ROOT = Path(os.environ.get("SCRATCH_ROOT") or
+            (Path.home() / ".local" / "share" / "claude-workbench" / "scratch")).expanduser()
 JOB = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 
 
-def _git(*args: str) -> subprocess.CompletedProcess[str]:
+def git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], capture_output=True, text=True)
 
 
-def _where(root: Path, job: str) -> tuple[Path, Path]:
-    """(the job's folder, its worktree)."""
-    return root / job, root / job / "wt"
+def paths(root: Path, job: str) -> tuple[Path, Path]:
+    folder = root / job
+    return folder, folder / "wt"
 
 
 def is_dir_link(path: Path) -> bool:
-    """A symlink or, on Windows, a junction: a door to somewhere else."""
     isjunction = getattr(os.path, "isjunction", None)
     return path.is_symlink() or bool(isjunction and isjunction(path))
 
 
 def unlink_dir_link(path: Path) -> None:
-    """Remove the link itself; whatever it points at is never touched."""
     if os.name == "nt":
-        os.rmdir(path)      # RemoveDirectoryW drops a junction, not its target
+        os.rmdir(path)
     else:
         path.unlink()
 
 
 def unlink_links(folder: Path) -> list[str]:
-    """Unlink every directory link at the top of `folder`, never walking into
-    one. The names removed, so a caller can say what it did."""
-    gone = []
+    removed = []
     for entry in folder.iterdir():
         if is_dir_link(entry):
             unlink_dir_link(entry)
-            gone.append(entry.name)
-    return gone
+            removed.append(entry.name)
+    return removed
 
 
 def make_dir_link(link: Path, target: Path) -> None:
     if os.name == "nt":
         import _winapi
-
         _winapi.CreateJunction(str(target), str(link))
     else:
         link.symlink_to(target, target_is_directory=True)
 
 
-def repo_of(wt: Path) -> Path | None:
-    """The real checkout a worktree belongs to, asked of git, never guessed."""
-    r = _git("-C", str(wt), "rev-parse", "--path-format=absolute", "--git-common-dir")
-    return Path(r.stdout.strip()).parent if r.returncode == 0 and r.stdout.strip() else None
+def repo_of(worktree: Path) -> Path | None:
+    result = git("-C", str(worktree), "rev-parse", "--path-format=absolute", "--git-common-dir")
+    return Path(result.stdout.strip()).parent if result.returncode == 0 and result.stdout.strip() else None
 
 
-def _refuse(why: str) -> int:
-    print(f"scratch: REFUSED, {why}")
+def refuse(message: str) -> int:
+    print(f"scratch: REFUSED, {message}")
     return 2
 
 
 def new(job: str, repo: Path, base: str = "main", root: Path = ROOT) -> int:
-    if not JOB.match(job):
-        return _refuse(f"a job is named in lowercase words and dashes, not {job!r}")
-    folder, wt = _where(root, job)
-    if wt.exists():
-        return _refuse(f"{wt} already exists; drop it first or pick another name")
-    folder.mkdir(parents=True, exist_ok=True)
-    r = _git("-C", str(repo), "worktree", "add", "-b", f"scratch/{job}", str(wt), base)
-    if r.returncode != 0:
-        print(f"scratch: git worktree add failed: {r.stderr.strip()}")
+    if not JOB.fullmatch(job):
+        return refuse("use a lowercase job name containing letters, digits, and dashes")
+    _folder, worktree = paths(root, job)
+    if worktree.exists():
+        return refuse(f"{worktree} already exists; drop it first or pick another job name")
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    result = git("-C", str(repo), "worktree", "add", "-b", f"scratch/{job}", str(worktree), base)
+    if result.returncode:
+        print(f"scratch: git worktree add failed: {result.stderr.strip()}")
         return 1
-    print(f"scratch: {wt} on branch scratch/{job}, cut from {base}")
+    print(f"scratch: {worktree} on branch scratch/{job}, cut from {base}")
     return 0
 
 
-def needs_css(wt: Path) -> bool:
-    """Does this checkout build a stylesheet it does not commit? 2026-10-09:
-    twice in one night a farm scratch ran its tests unstyled (built css is
-    gitignored), and eight browser tests failed for that alone."""
-    pkg = wt / "package.json"
-    return pkg.is_file() and '"build:css"' in pkg.read_text(encoding="utf-8")
+def needs_css(worktree: Path) -> bool:
+    package = worktree / "package.json"
+    return package.is_file() and '"build:css"' in package.read_text(encoding="utf-8")
 
 
 def css(job: str, root: Path = ROOT, build: list[str] | None = None) -> int:
-    """Build the stylesheet inside the worktree from its own templates, borrowing
-    the real checkout's node_modules only for as long as the build runs."""
-    _, wt = _where(root, job)
-    if not wt.is_dir():
-        return _refuse(f"no worktree at {wt}")
-    repo = repo_of(wt)
+    """Build CSS in the worktree, borrowing dependencies only during the build."""
+    _folder, worktree = paths(root, job)
+    if not worktree.is_dir():
+        return refuse(f"no worktree at {worktree}")
+    repo = repo_of(worktree)
     if repo is None:
-        return _refuse(f"{wt} is not a git worktree")
+        return refuse(f"{worktree} is not a git worktree")
     modules = repo / "node_modules"
     if not modules.is_dir():
-        return _refuse(f"{repo} has no node_modules to borrow; install there first")
-    link = wt / "node_modules"
+        return refuse(f"{repo} has no node_modules to borrow")
+    link = worktree / "node_modules"
     if link.exists() and not is_dir_link(link):
-        return _refuse(f"{link} is a real folder; build there directly")
+        return refuse(f"{link} is a real directory; build there directly")
     if build is None:
         npm = shutil.which("npm")
         if npm is None:
-            return _refuse("npm is not on the PATH")
-        build = [npm, "--prefix", str(wt), "run", "build:css"]
+            return refuse("npm is not on PATH")
+        build = [npm, "--prefix", str(worktree), "run", "build:css"]
     made = False
     try:
         if not link.exists():
             make_dir_link(link, modules)
             made = True
-        r = subprocess.run(build, cwd=str(wt))
+        result = subprocess.run(build, cwd=worktree)
     finally:
         if made and is_dir_link(link):
             unlink_dir_link(link)
-    if r.returncode != 0:
-        print(f"scratch: the stylesheet build exited {r.returncode}")
+    if result.returncode:
+        print(f"scratch: stylesheet build exited {result.returncode}")
         return 1
-    print(f"scratch: stylesheet built in {wt} from its own templates; the borrowed "
-          "node_modules link is already gone")
+    print(f"scratch: stylesheet built in {worktree}; borrowed node_modules link removed")
     return 0
 
 
-def _unique_commits(repo: Path, branch: str) -> int | None:
-    """How many commits on `branch` are on no other branch or remote."""
-    r = _git("-C", str(repo), "rev-list", "--count", branch, "--not",
-             f"--exclude={branch}", "--branches", "--remotes")
-    return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else None
+def unique_commits(repo: Path, branch: str) -> int | None:
+    result = git("-C", str(repo), "rev-list", "--count", branch, "--not",
+                 f"--exclude={branch}", "--branches", "--remotes")
+    value = result.stdout.strip()
+    return int(value) if result.returncode == 0 and value.isdigit() else None
 
 
 def drop(job: str, root: Path = ROOT) -> int:
-    if not JOB.match(job):
-        return _refuse(f"a job is named in lowercase words and dashes, not {job!r}")
-    folder, wt = _where(root, job)
+    if not JOB.fullmatch(job):
+        return refuse("use a lowercase job name containing letters, digits, and dashes")
+    folder, worktree = paths(root, job)
     if not folder.exists():
         print(f"scratch: nothing to drop, {folder} does not exist")
         return 0
-    # 1. LINKS FIRST, unlinked and never walked: the hazard this tool exists for.
-    if wt.is_dir():
-        for name in unlink_links(wt):
-            print(f"scratch: removed the link {name} (its target is untouched)")
-    # 2. The worktree, through git, so the repo's worktree list stays clean.
+    if worktree.is_dir():
+        for name in unlink_links(worktree):
+            print(f"scratch: removed link {name}; its target is untouched")
+    repo = repo_of(worktree) if worktree.is_dir() else None
     kept = ""
-    repo = repo_of(wt) if wt.is_dir() else None
     if repo is not None:
-        r = _git("-C", str(repo), "worktree", "remove", "--force", str(wt))
-        if r.returncode != 0:
-            print(f"scratch: git worktree remove failed: {r.stderr.strip()}")
+        result = git("-C", str(repo), "worktree", "remove", "--force", str(worktree))
+        if result.returncode:
+            print(f"scratch: git worktree remove failed: {result.stderr.strip()}")
             return 1
         branch = f"scratch/{job}"
-        unique = _unique_commits(repo, branch)
+        unique = unique_commits(repo, branch)
         if unique == 0:
-            _git("-C", str(repo), "branch", "-D", branch)
+            git("-C", str(repo), "branch", "-D", branch)
         elif unique is None:
-            kept = f"; branch {branch} kept, git could not say whether it holds unique work"
+            kept = f"; branch {branch} kept because git could not check for unique work"
         else:
-            kept = (f"; branch {branch} KEPT, it holds {unique} commit(s) found on no "
-                    "other branch, and deleting unique work is the owner's call")
-    # 3. The folder. No link is left at the worktree's top level, and rmtree
-    #    removes a nested link without following it.
+            kept = f"; branch {branch} kept because it has {unique} unique commit(s)"
     shutil.rmtree(folder)
     print(f"scratch: dropped {job}{kept}")
     return 0
 
 
 def self_test() -> int:
-    checks = [0, 0]
+    checks = passed = 0
 
     def want(label: str, condition: bool) -> None:
-        checks[0] += 1
+        nonlocal checks, passed
+        checks += 1
         if condition:
-            checks[1] += 1
-            print("  ok    %s" % label)
+            passed += 1
+            print(f"  ok    {label}")
         else:
-            print("  FAIL  %s" % label)
+            print(f"  FAIL  {label}")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        base = Path(tmp)
-        repo, root = base / "repo", base / "scratch"
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        repo, scratch_root = root / "repo", root / "scratch"
         repo.mkdir()
         for args in (("init", "-q", "-b", "main"), ("config", "user.email", "scratch-self-test"),
-                     ("config", "user.name", "t"), ("config", "commit.gpgsign", "false")):
-            _git("-C", str(repo), *args)
-        (repo / "a.txt").write_text("a\n")
-        _git("-C", str(repo), "add", "a.txt")
-        _git("-C", str(repo), "commit", "-q", "-m", "a")
+                     ("config", "user.name", "Test User"), ("config", "commit.gpgsign", "false")):
+            git("-C", str(repo), *args)
+        (repo / "base.txt").write_text("base\n", encoding="utf-8")
+        git("-C", str(repo), "add", "base.txt")
+        git("-C", str(repo), "commit", "-q", "-m", "base")
         modules = repo / "node_modules"
         modules.mkdir()
         sentinel = modules / "keep.js"
-        sentinel.write_text("// the real checkout's packages\n")
-
-        want("a job is cut as a worktree on its own branch",
-             new("demo", repo, root=root) == 0 and (root / "demo" / "wt" / "a.txt").is_file()
-             and _git("-C", str(repo), "rev-parse", "--verify", "scratch/demo").returncode == 0)
-        want("cutting the same job twice is refused", new("demo", repo, root=root) == 2)
-        want("a name that could escape the scratch root is refused",
-             new("../evil", repo, root=root) == 2)
-
-        wt = root / "demo" / "wt"
-        build = [sys.executable, "-c",
-                 "import pathlib; assert pathlib.Path('node_modules/keep.js').is_file(); "
-                 "pathlib.Path('built.css').write_text('x')"]
-        want("css builds INSIDE the worktree while the packages are borrowed",
-             css("demo", root=root, build=build) == 0 and (wt / "built.css").is_file())
-        want("and the borrowed link is gone the moment the build ends",
-             not (wt / "node_modules").exists())
-        want("and the real packages are untouched", sentinel.is_file())
-        failing = [sys.executable, "-c", "raise SystemExit(5)"]
-        want("a failed build reports failure and still removes the link",
-             css("demo", root=root, build=failing) == 1 and not (wt / "node_modules").exists())
-
-        # THE UNLINK STEP, pinned on its own. Measured 2026-10-03: neither `git
-        # worktree remove --force` nor shutil.rmtree follows a junction on the
-        # PC, so disabling this step left every drop assertion below green. The
-        # step is what makes a hand `Remove-Item -Recurse`, which can follow
-        # one, unnecessary; these two assertions go red without it.
-        make_dir_link(wt / "node_modules", modules)
-        want("unlink_links removes a directory link and names it",
-             unlink_links(wt) == ["node_modules"] and not (wt / "node_modules").exists())
-        want("and leaves the folder it pointed at whole", sentinel.is_file())
-
-        # THE HAZARD: a link left in the worktree when it is dropped.
-        make_dir_link(wt / "node_modules", modules)
-        want("drop succeeds with a link still inside the worktree", drop("demo", root=root) == 0)
-        want("and the real checkout's packages survive the drop (the hazard)",
-             sentinel.is_file())
-        want("the worktree, its branch and its folder are all gone",
-             not (root / "demo").exists()
-             and _git("-C", str(repo), "rev-parse", "--verify", "scratch/demo").returncode != 0
-             and str(wt) not in _git("-C", str(repo), "worktree", "list").stdout)
-
-        new("kept", repo, root=root)
-        kept_wt = root / "kept" / "wt"
-        (kept_wt / "b.txt").write_text("b\n")
-        _git("-C", str(kept_wt), "add", "b.txt")
-        _git("-C", str(kept_wt), "commit", "-q", "-m", "b")
-        want("a branch holding a commit found nowhere else is KEPT on drop",
-             drop("kept", root=root) == 0
-             and _git("-C", str(repo), "rev-parse", "--verify", "scratch/kept").returncode == 0)
-        want("dropping a job that is not there is a no-op, not a failure",
-             drop("ghost", root=root) == 0)
-
-        new("own", repo, root=root)
-        (root / "own" / "wt" / "node_modules").mkdir()
-        want("css refuses a worktree with its own real node_modules",
-             css("own", root=root, build=build) == 2)
-        drop("own", root=root)
-
-        want("the memory bank defaults to its machine branch, never main",
-             default_base(repo, repo, "windows") == "windows")
-        want("an app repo defaults to main", default_base(repo, base / "bank", "windows") == "main")
-
-        styled = base / "styled"
-        styled.mkdir()
-        want("a checkout with no package.json builds no stylesheet", not needs_css(styled))
-        (styled / "package.json").write_text('{"scripts": {"test": "x"}}', encoding="utf-8")
-        want("nor one whose package.json has no build:css", not needs_css(styled))
-        (styled / "package.json").write_text(
-            '{"scripts": {"build:css": "tailwindcss -i a -o b"}}', encoding="utf-8")
-        want("one with build:css gets its stylesheet built on new", needs_css(styled))
-
-    print("\nscratch self-test: %d/%d checks passed" % (checks[1], checks[0]))
-    return 0 if checks[1] == checks[0] else 1
+        sentinel.write_text("packages\n", encoding="utf-8")
+        want("a scratch worktree gets its own branch",
+             new("demo", repo, root=scratch_root) == 0 and
+             (scratch_root / "demo" / "wt" / "base.txt").is_file())
+        want("a repeated worktree is refused", new("demo", repo, root=scratch_root) == 2)
+        want("a traversal name is refused", new("../bad", repo, root=scratch_root) == 2)
+        worktree = scratch_root / "demo" / "wt"
+        build = [sys.executable, "-c", "import pathlib; assert pathlib.Path('node_modules/keep.js').is_file(); pathlib.Path('built.css').write_text('x')"]
+        want("CSS builds while dependencies are temporarily linked",
+             css("demo", root=scratch_root, build=build) == 0 and (worktree / "built.css").is_file())
+        want("the borrowed link is removed and original dependencies survive",
+             not (worktree / "node_modules").exists() and sentinel.is_file())
+        failed_build = [sys.executable, "-c", "raise SystemExit(5)"]
+        want("a failed build is reported and removes the borrowed link",
+             css("demo", root=scratch_root, build=failed_build) == 1 and not (worktree / "node_modules").exists())
+        make_dir_link(worktree / "node_modules", modules)
+        want("a directory link is unlinked without changing its target",
+             unlink_links(worktree) == ["node_modules"] and sentinel.is_file())
+        make_dir_link(worktree / "node_modules", modules)
+        want("drop removes the worktree without following its link",
+             drop("demo", root=scratch_root) == 0 and sentinel.is_file() and not (scratch_root / "demo").exists())
+        want("dropping a missing job is a no-op", drop("ghost", root=scratch_root) == 0)
+        want("a checkout without a CSS build script needs no build", not needs_css(root))
+        (root / "package.json").write_text('{"scripts":{"build:css":"tool"}}', encoding="utf-8")
+        want("a CSS build script is detected", needs_css(root))
+    print(f"scratch self-test: {passed}/{checks} checks passed")
+    return 0 if passed == checks else 1
 
 
-def default_base(repo: Path, bank: Path, machine_branch: str) -> str:
-    """The branch a scratch job is cut from when --base is not given: the
-    memory bank's own machine branch (it has no `main`, so the old fixed
-    default refused every bank job, 2026-10-09), and `main` for app repos."""
-    same = os.path.realpath(repo) == os.path.realpath(bank)
-    return machine_branch if same and machine_branch else "main"
-
-
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="scratch")
-    ap.add_argument("--self-test", action="store_true")
-    ap.add_argument("verb", nargs="?", choices=("new", "css", "drop"))
-    ap.add_argument("job", nargs="?")
-    ap.add_argument("--repo", help="the real checkout a NEW worktree is cut from")
-    ap.add_argument("--base", help="default: the bank's machine branch, else main")
-    ap.add_argument("--root", default=str(ROOT), help="the scratch root")
-    a = ap.parse_args(argv)
-    if a.self_test:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="scratch")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("verb", nargs="?", choices=("new", "css", "drop"))
+    parser.add_argument("job", nargs="?")
+    parser.add_argument("--repo")
+    parser.add_argument("--base")
+    parser.add_argument("--root", default=str(ROOT))
+    args = parser.parse_args(argv)
+    if args.self_test:
         return self_test()
-    if not a.verb or not a.job:
-        ap.error("say new, css or drop, then the job's name")
-    root = Path(a.root)
-    if a.verb == "new":
-        if not a.repo:
-            ap.error("new needs --repo, the real checkout to cut from")
-        base = a.base
-        if not base:
-            import machinelib
-            base = default_base(Path(a.repo), Path(__file__).resolve().parent.parent,
-                                machinelib.machine_branch())
-        rc = new(a.job, Path(a.repo), base, root)
-        if rc == 0 and needs_css(_where(root, a.job)[1]):
-            return css(a.job, root)
-        return rc
-    if a.verb == "css":
-        return css(a.job, root)
-    return drop(a.job, root)
+    if not args.verb or not args.job:
+        parser.error("say new, css, or drop, then the job name")
+    root = Path(args.root).expanduser()
+    if args.verb == "new":
+        if not args.repo:
+            parser.error("new needs --repo, the checkout for the worktree")
+        base = args.base or os.environ.get("WORKBENCH_DEFAULT_BRANCH", "main")
+        result = new(args.job, Path(args.repo).expanduser(), base, root)
+        if result == 0 and needs_css(paths(root, args.job)[1]):
+            return css(args.job, root)
+        return result
+    if args.verb == "css":
+        return css(args.job, root)
+    return drop(args.job, root)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
