@@ -47,7 +47,8 @@ def validate(path, pointers=POINTERS):
     fields, body = parse(path)
     if fields.get("name") != path.stem:
         raise ValueError("name does not match filename stem")
-    if "—" in path.read_text(encoding="utf-8") or "–" in path.read_text(encoding="utf-8"):
+    text = path.read_text(encoding="utf-8")
+    if chr(0x2014) in text or chr(0x2013) in text:  # em dash, en dash
         raise ValueError("contains em dash or en dash")
     if path.stem in pointers:
         validate_pointer(path, fields, body)
