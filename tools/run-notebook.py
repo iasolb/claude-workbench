@@ -5,7 +5,7 @@
                                  [--cwd <dir>] [--timeout 900]
     python tools/run-notebook.py --self-test
 
-WHY (A3, second occurrence, 2026-10-17). Ian's otter tour notebook was executed
+WHY (A3, second occurrence, 2026-10-17). The otter tour notebook was executed
 end to end that morning, then research-kit's third notebook needed the same,
 with three more teaching notebooks behind it. A bare `jupyter nbconvert
 --execute` cannot do the three things each run needs under the shell guard:

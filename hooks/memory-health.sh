@@ -1,53 +1,46 @@
 #!/usr/bin/env bash
-# SessionStart hook: memory bloat check. Silent when everything is
-# within budget (no tokens wasted on good news); prints [memory-health]
-# warnings with numbers when something needs a consolidation or trim pass.
-# This is the trigger for efficiency passes: act on it when it fires.
-# macOS/Linux side; Windows runs the .ps1 counterpart. Always exits 0.
-
-case "$(uname)" in
-    MINGW*|MSYS*|CYGWIN*) exit 0 ;;
-esac
-
+# SessionStart hook: warn when configured memory and status files exceed budgets.
+# Defaults: MEMORY_DIR=memory, MEMORY_INDEX=memory/MEMORY.md,
+# CURRENT_STATUS=queue/current.md. MANDATED_READS is a colon-separated list
+# of repository-relative paths; set it to monitor additional always-read files.
+case "$(uname)" in MINGW*|MSYS*|CYGWIN*) exit 0 ;; esac
 CONF="${WORKBENCH_CONF:-$HOME/.claude/workbench.conf}"
 [[ -f "$CONF" ]] || exit 0
 REPO="$(sed -n 's/^REPO_PATH=//p' "$CONF" | tr -d '\r' | head -n 1)"
-[[ -n "$REPO" && -d "$REPO" ]] || exit 0
-
-# Budgets. Rationale: MEMORY.md and queue/current.md are printed or loaded
-# into EVERY session, so their budgets are tight; individual memory files
-# are loaded on demand, so only outliers matter. Tune these to your repo.
-MEMORY_MD_MAX_LINES=45      # index: one line per memory + headers
-CURRENT_MD_MAX_LINES=150    # arc state, not an archive
-FILE_MAX_KB=10              # any single memory file
-# Set the directory budget to something a real cleanup pass can actually
-# reach. A budget nothing can meet stops being a signal, and the per-FILE
-# limit above is the earlier and more useful warning anyway.
-TOTAL_MAX_KB=185            # whole memory/ dir
-
-warn=0
-say() { [[ $warn -eq 0 ]] && echo "[memory-health] over budget, run a consolidation/trim pass:"; warn=1; echo "[memory-health]   $1"; }
-
-MEM="$REPO/memory"
-if [[ -f "$MEM/MEMORY.md" ]]; then
-    n=$(wc -l < "$MEM/MEMORY.md" | tr -d ' ')
-    [[ $n -gt $MEMORY_MD_MAX_LINES ]] && say "MEMORY.md is $n lines (budget $MEMORY_MD_MAX_LINES): merge or drop index entries"
+[[ -d "$REPO" ]] || exit 0
+MEMORY_DIR="${MEMORY_DIR:-memory}"
+MEMORY_INDEX="${MEMORY_INDEX:-$MEMORY_DIR/MEMORY.md}"
+CURRENT_STATUS="${CURRENT_STATUS:-queue/current.md}"
+INDEX_MAX="${MEMORY_INDEX_MAX_LINES:-45}"
+CURRENT_MAX="${CURRENT_STATUS_MAX_LINES:-150}"
+FILE_MAX="${MEMORY_FILE_MAX_KB:-10}"
+TOTAL_MAX="${MEMORY_TOTAL_MAX_KB:-185}"
+READ_MAX="${MANDATED_READ_MAX_KB:-65}"
+warned=0
+say() { [[ $warned -eq 0 ]] && printf '%s\n' '[memory-health] over budget, review and consolidate:'; warned=1; printf '[memory-health]   %s\n' "$1"; }
+if [[ -f "$REPO/$MEMORY_INDEX" ]]; then
+    n="$(wc -l < "$REPO/$MEMORY_INDEX" | tr -d ' ')"
+    [[ $n -gt $INDEX_MAX ]] && say "index has $n lines (budget $INDEX_MAX)"
 fi
-
-CUR="$REPO/queue/current.md"
-if [[ -f "$CUR" ]]; then
-    n=$(wc -l < "$CUR" | tr -d ' ')
-    [[ $n -gt $CURRENT_MD_MAX_LINES ]] && say "queue/current.md is $n lines (budget $CURRENT_MD_MAX_LINES): archive finished-arc detail into memory/ and cut it back to live state"
+if [[ -f "$REPO/$CURRENT_STATUS" ]]; then
+    n="$(wc -l < "$REPO/$CURRENT_STATUS" | tr -d ' ')"
+    [[ $n -gt $CURRENT_MAX ]] && say "current status has $n lines (budget $CURRENT_MAX)"
 fi
-
+MEM="$REPO/$MEMORY_DIR"
 if [[ -d "$MEM" ]]; then
-    # Byte-accurate sizes (du -k block-rounds small files up).
-    total_kb=$(find "$MEM" -maxdepth 1 -name '*.md' -print0 | xargs -0 wc -c | tail -1 | awk '{print int($1/1024)}')
-    [[ $total_kb -gt $TOTAL_MAX_KB ]] && say "memory/ totals ${total_kb}KB (budget ${TOTAL_MAX_KB}KB)"
-    while IFS= read -r f; do
-        kb=$(( $(wc -c < "$f") / 1024 ))
-        [[ $kb -gt $FILE_MAX_KB ]] && say "$(basename "$f") is ${kb}KB (budget ${FILE_MAX_KB}KB): split or condense"
-    done < <(find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md')
+    total="$(find "$MEM" -maxdepth 1 -name '*.md' -print0 | xargs -0 wc -c | tail -1 | awk '{print int($1/1024)}')"
+    [[ $total -gt $TOTAL_MAX ]] && say "memory directory totals ${total}KB (budget ${TOTAL_MAX}KB)"
+    while IFS= read -r file; do
+        [[ "$file" == "$REPO/$MEMORY_INDEX" ]] && continue
+        kb=$(( $(wc -c < "$file") / 1024 ))
+        [[ $kb -gt $FILE_MAX ]] && say "$(basename "$file") is ${kb}KB (budget ${FILE_MAX}KB)"
+    done < <(find "$MEM" -maxdepth 1 -name '*.md' ! -path "$REPO/$MEMORY_INDEX")
 fi
-
+IFS=: read -r -a reads <<< "${MANDATED_READS:-}"
+for relative in "${reads[@]}"; do
+    file="$REPO/$relative"
+    [[ -f "$file" ]] || continue
+    kb=$(( $(wc -c < "$file") / 1024 ))
+    [[ $kb -gt $READ_MAX ]] && say "$relative exceeds the mandated-read budget of ${READ_MAX}KB"
+done
 exit 0

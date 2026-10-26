@@ -56,6 +56,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 TOOLS = REPO / "tools"
+HOOKS = REPO / "hooks"
 INTERPRETER = sys.executable
 
 # Tools that must NOT be run here, each with the reason. An enumerated list,
@@ -74,9 +75,14 @@ def has_self_test(path: Path) -> bool:
     return "--self-test" in text or "self_test" in text
 
 
+def is_test_file(path: Path) -> bool:
+    """A hooks/<name>.test.py file is a test in itself and runs without a flag."""
+    return path.name.endswith(".test.py")
+
+
 def candidates(only: str | None) -> list[Path]:
     found = []
-    for path in sorted(TOOLS.glob("*.py")):
+    for path in sorted(TOOLS.glob("*.py")) + sorted(HOOKS.glob("*.py")):
         if path.name in SKIP:
             continue
         if only and only.lower() not in path.name.lower():
@@ -87,7 +93,7 @@ def candidates(only: str | None) -> list[Path]:
 
 def run_one(path: Path, timeout: int) -> tuple[str, str, float, str]:
     """Returns (name, status, seconds, detail)."""
-    if not has_self_test(path):
+    if not is_test_file(path) and not has_self_test(path):
         return (path.name, "NO-TEST", 0.0, "no --self-test in the source")
     started = time.time()
     try:
@@ -102,7 +108,7 @@ def run_one(path: Path, timeout: int) -> tuple[str, str, float, str]:
         # `rules/shared/memory-integrity.md` rule 2 in the tool whose whole job
         # is telling us whether the tools work.
         proc = subprocess.run(
-            [INTERPRETER, str(path), "--self-test"],
+            [INTERPRETER, str(path)] + ([] if is_test_file(path) else ["--self-test"]),
             capture_output=True, timeout=timeout, cwd=str(REPO),
             encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
@@ -226,11 +232,15 @@ def _self_test() -> int:
         if not cond:
             failures.append(label)
 
-    global TOOLS
-    saved = TOOLS
+    global TOOLS, HOOKS
+    saved = TOOLS, HOOKS
     root = Path(tempfile.mkdtemp(prefix="sta-selftest-"))
     try:
         TOOLS = root
+        HOOKS = root / "hooks"
+        HOOKS.mkdir()
+        (HOOKS / "fixture.test.py").write_text(
+            "print('hook fixture passed')\n", encoding="utf-8")
         (root / "good.py").write_text(
             "import sys\n"
             "if '--self-test' in sys.argv:\n"
@@ -245,6 +255,12 @@ def _self_test() -> int:
             "import sys, time\n"
             "if '--self-test' in sys.argv:\n"
             "    time.sleep(30)\n", encoding="utf-8")
+
+        hook_candidates = candidates("fixture")
+        check(len(hook_candidates) == 1 and is_test_file(hook_candidates[0]),
+              "a standalone hook test is discovered without requiring a flag")
+        name, status, _, _ = run_one(hook_candidates[0], 20)
+        check(status == "PASS", "a standalone hook test runs without a flag")
 
         name, status, _, _ = run_one(root / "good.py", 20)
         check(status == "PASS", "a passing self-test reports PASS")
@@ -311,7 +327,7 @@ def _self_test() -> int:
         rc = main(["--only", "nosuchtool"])
         check(rc == 2, "a filter matching nothing exits 2, never a false green")
     finally:
-        TOOLS = saved
+        TOOLS, HOOKS = saved
         import shutil
         shutil.rmtree(root, ignore_errors=True)
 

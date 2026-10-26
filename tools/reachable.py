@@ -79,7 +79,7 @@ ROOTS = [
 
 # `tools/*.cmd` is in ROOTS for a reason worth stating, since it looks like a
 # blanket excuse. `tools/drivers.cmd` exists precisely BECAUSE no session may
-# launch it: the `Start-Process ... @(...)` form it replaced could never be
+# launch it: the `Start-Process` argument-array form it replaced could never be
 # allowlisted (an array literal is failure mode 1, which no entry can fix), so
 # The owner launches the file instead. It is a human ENTRY POINT, like a hook is
 # a harness entry point. Reporting it as unreached every run would be the
